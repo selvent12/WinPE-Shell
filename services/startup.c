@@ -399,6 +399,12 @@ SETUP           = {FALSE, FALSE, FALSE, TRUE, TRUE, TRUE};
 
 int startup(int argc, const TCHAR *argv[])
 {
+#ifndef MYPE_ENABLE_STARTUP
+    /* MyPE: the shell does not run Run/RunOnce entries nor PendingFileRenameOperations; everything started at
+       boot is started by our launcher (MyPEStart.exe). Build with MYPE_ENABLE_STARTUP to restore the ReactOS behaviour. */
+    (void)argc; (void)argv;
+    return 0;
+#else
     struct op_mask ops; /* Which of the ops do we want to perform? */
     /* First, set the current directory to SystemRoot */
     TCHAR gen_path[MAX_PATH];
@@ -457,4 +463,5 @@ int startup(int argc, const TCHAR *argv[])
     _tprintf(TEXT("Operation done\n"));
 
     return res ? 0 : 101;
+#endif /* MYPE_ENABLE_STARTUP */
 }
