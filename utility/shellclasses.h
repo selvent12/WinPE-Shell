@@ -1027,7 +1027,13 @@ struct ShellItemEnumerator : public SIfacePtr<IEnumIDList> {
     {
         CONTEXT("ShellItemEnumerator::ShellItemEnumerator()");
 
-        CHECKERROR(folder->EnumObjects(0, flags, &_p));
+        // MyPE: a drive that cannot be enumerated (empty CD/DVD, device not ready, Ventoy virtual drive) returns
+        // ERROR_CANCELLED / NOT_READY - the original code threw and showed a "ShellClasses Exception" dialog
+        // (real PC test 2026-11-22). Treat it as an empty folder: _p stays NULL, callers check the pointer.
+        // (EnumObjects may also return S_FALSE with a NULL enumerator when there is nothing to enumerate.)
+        HRESULT hr = folder->EnumObjects(0, flags, &_p);
+        if (FAILED(hr))
+            _p = NULL;
     }
 };
 

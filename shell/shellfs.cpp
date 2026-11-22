@@ -379,7 +379,8 @@ void ShellDirectory::read_directory(int scan_flags)
 
             memset(pidls, 0, sizeof(pidls));
 
-            hr_next = enumerator->Next(FETCH_ITEM_COUNT, pidls, &cnt);
+            // MyPE: no enumerator = folder could not be enumerated (empty drive) -> treat as empty
+            hr_next = (IEnumIDList *)enumerator ? enumerator->Next(FETCH_ITEM_COUNT, pidls, &cnt) : S_FALSE;
 
             /* don't break yet now: Registry Explorer Plugin returns E_FAIL!
             if (!SUCCEEDED(hr_next))
