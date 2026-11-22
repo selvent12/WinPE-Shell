@@ -1072,30 +1072,8 @@ int WINAPI _tWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPTSTR lpCmdL
 
     // command line option "-install" to replace previous shell application with WinXShell
     if (_tcsstr(ext_options, TEXT("-install"))) {
-        // install WinXShell into the registry
-        TCHAR path[MAX_PATH];
-
-        int l = GetModuleFileName(0, path, COUNTOF(path));
-        if (l) {
-            HKEY hkey;
-
-            if (!RegOpenKey(HKEY_LOCAL_MACHINE, TEXT("SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon"), &hkey)) {
-
-                ///@todo save previous shell application in config file
-
-                RegSetValueEx(hkey, TEXT("Shell"), 0, REG_SZ, (LPBYTE)path, l * sizeof(TCHAR));
-                RegCloseKey(hkey);
-            }
-
-            if (!RegOpenKey(HKEY_CURRENT_USER, TEXT("SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon"), &hkey)) {
-
-                ///@todo save previous shell application in config file
-
-                RegSetValueEx(hkey, TEXT("Shell"), 0, REG_SZ, (LPBYTE)TEXT(""), l * sizeof(TCHAR));
-                RegCloseKey(hkey);
-            }
-        }
-
+        // MyPE: registering WinXShell as Winlogon\Shell (HKLM/HKCU) removed - the shell must never change the
+        // registry of the machine it runs on; in MyPE it is started by our launcher (MyPEStart.exe).
         CloseShellProcess();
 
         startup_desktop = TRUE;
