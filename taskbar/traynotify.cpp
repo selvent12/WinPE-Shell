@@ -143,10 +143,10 @@ NotifyIconIndex::NotifyIconIndex(NOTIFYICONDATA *pnid)
 {
     ULONG32 size = ((NOTIFYICONDATA *)pnid)->cbSize;
     if (IS_NID_ANSI_SIZE_X86(size)) {
-        _hWnd = (HWND)((X86_NOTIFYICONDATAA *)pnid)->hWnd;
+        _hWnd = (HWND)(LONG_PTR)(LONG)((X86_NOTIFYICONDATAA *)pnid)->hWnd;
         _uID = ((X86_NOTIFYICONDATAA *)pnid)->uID;
     } else if (IS_NID_UNICODE_SIZE_X86(size)) {
-        _hWnd = (HWND)((X86_NOTIFYICONDATAW *)pnid)->hWnd;
+        _hWnd = (HWND)(LONG_PTR)(LONG)((X86_NOTIFYICONDATAW *)pnid)->hWnd;
         _uID = ((X86_NOTIFYICONDATAW *)pnid)->uID;
     } else if (IS_NID_ANSI_SIZE_X64(size)) {
         _hWnd = (HWND)((X64_NOTIFYICONDATAA *)pnid)->hWnd;
@@ -203,8 +203,8 @@ bool NotifyInfo::_modify(NID_T *pnid)
 {
     bool changes = false;
 
-    if (_hWnd != (HWND)pnid->hWnd || _uID != pnid->uID) {
-        _hWnd = (HWND)pnid->hWnd;
+    if (_hWnd != (HWND)(LONG_PTR)(LONG)pnid->hWnd || _uID != pnid->uID) {
+        _hWnd = (HWND)(LONG_PTR)(LONG)pnid->hWnd;
         _uID = pnid->uID;
 
         changes = true;
@@ -223,7 +223,7 @@ bool NotifyInfo::_modify(NID_T *pnid)
         if (_hIcon)
             DestroyIcon(_hIcon);
 
-        _hIcon = (HICON) CopyImage((HICON)pnid->hIcon, IMAGE_ICON, NOTIFYICON_SIZE, NOTIFYICON_SIZE, 0);
+        _hIcon = (HICON) CopyImage((HICON)(LONG_PTR)(LONG)pnid->hIcon, IMAGE_ICON, NOTIFYICON_SIZE, NOTIFYICON_SIZE, 0);
 
         changes = true; ///@todo compare icon
     }

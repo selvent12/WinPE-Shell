@@ -173,13 +173,13 @@ BOOL time_to_filetime(const time_t *t, FILETIME *ftime)
         return FALSE;
 #endif
 
-    stime.wYear = tm->tm_year + 1900;
-    stime.wMonth = tm->tm_mon + 1;
+    stime.wYear = (WORD)(tm->tm_year + 1900);
+    stime.wMonth = (WORD)(tm->tm_mon + 1);
     stime.wDayOfWeek = (WORD) - 1;
-    stime.wDay = tm->tm_mday;
-    stime.wHour = tm->tm_hour;
-    stime.wMinute = tm->tm_min;
-    stime.wSecond = tm->tm_sec;
+    stime.wDay = (WORD)(tm->tm_mday);
+    stime.wHour = (WORD)(tm->tm_hour);
+    stime.wMinute = (WORD)(tm->tm_min);
+    stime.wSecond = (WORD)(tm->tm_sec);
     stime.wMilliseconds = 0;
 
     return SystemTimeToFileTime(&stime, ftime);
@@ -192,7 +192,7 @@ BOOL launch_file(HWND hwnd, LPCTSTR cmd, UINT nCmdShow, LPCTSTR parameters)
 
     HINSTANCE hinst = ShellExecute(hwnd, NULL/*operation*/, cmd, parameters, NULL/*dir*/, nCmdShow);
 
-    if ((int)hinst <= 32) {
+    if ((INT_PTR)hinst <= 32) {
         display_error(hwnd, GetLastError());
         return FALSE;
     }
@@ -205,7 +205,7 @@ BOOL launch_fileA(HWND hwnd, LPSTR cmd, UINT nCmdShow, LPCSTR parameters)
 {
     HINSTANCE hinst = ShellExecuteA(hwnd, NULL/*operation*/, cmd, parameters, NULL/*dir*/, nCmdShow);
 
-    if ((int)hinst <= 32) {
+    if ((INT_PTR)hinst <= 32) {
         display_error(hwnd, GetLastError());
         return FALSE;
     }
@@ -409,7 +409,7 @@ BOOL launch_cpanel(HWND hwnd, LPCTSTR applet)
     _tcscpy(parameters, TEXT("shell32.dll,Control_RunDLL "));
     _tcscat(parameters, applet);
 
-    return ((int)ShellExecute(hwnd, TEXT("open"), TEXT("rundll32.exe"), parameters, NULL, SW_SHOWDEFAULT) > 32);
+    return ((INT_PTR)ShellExecute(hwnd, TEXT("open"), TEXT("rundll32.exe"), parameters, NULL, SW_SHOWDEFAULT) > 32);
 }
 
 

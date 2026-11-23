@@ -180,7 +180,7 @@ bool FileTypeManager::is_exe_file(LPCTSTR ext)
     LPCTSTR s;
     LPTSTR d;
 
-    for (s = ext + 1, d = ext_buffer; (*d = toupper(*s)); s++)
+    for (s = ext + 1, d = ext_buffer; (*d = (TCHAR)_totupper(*s)); s++)
         ++d;
 
     for (p = s_executable_extensions; *p; p++)
@@ -1050,7 +1050,7 @@ int WINAPI _tWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPTSTR lpCmdL
 
     BOOL any_desktop_running = IsAnyDesktopRunning();
 
-    BOOL startup_desktop;
+    BOOL startup_desktop = FALSE;   // MyPE: C4701, not set on every path (e.g. WinPE without -winpe)
 
     // strip extended options from the front of the command line
     String ext_options;
@@ -1119,9 +1119,9 @@ int WINAPI _tWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPTSTR lpCmdL
     if (_tcsstr(ext_options, TEXT("-console"))) {
         AllocConsole();
 
-        _dup2(_open_osfhandle((long)GetStdHandle(STD_INPUT_HANDLE), _O_RDONLY), 0);
-        _dup2(_open_osfhandle((long)GetStdHandle(STD_OUTPUT_HANDLE), 0), 1);
-        _dup2(_open_osfhandle((long)GetStdHandle(STD_ERROR_HANDLE), 0), 2);
+        _dup2(_open_osfhandle((intptr_t)GetStdHandle(STD_INPUT_HANDLE), _O_RDONLY), 0);
+        _dup2(_open_osfhandle((intptr_t)GetStdHandle(STD_OUTPUT_HANDLE), 0), 1);
+        _dup2(_open_osfhandle((intptr_t)GetStdHandle(STD_ERROR_HANDLE), 0), 2);
 
         g_Globals._log = _tfdopen(1, TEXT("w"));
         setvbuf(g_Globals._log, 0, _IONBF, 0);

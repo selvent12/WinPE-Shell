@@ -705,7 +705,7 @@ struct ShellPath : public SShellPtr<ITEMIDLIST> {
     }
 
     explicit ShellPath(LPITEMIDLIST p)
-        :  super(p)
+        :  super((ITEMIDLIST *)p)
     {
     }
 
@@ -943,7 +943,7 @@ struct FolderBrowser : public FileSysShellPath {
         _browseinfo.lParam = 0;
         _browseinfo.iImage = 0;
 
-        _p = SHBrowseForFolder(&_browseinfo);
+        _p = (ITEMIDLIST *)SHBrowseForFolder(&_browseinfo);
     }
 
     LPCTSTR GetDisplayName()
@@ -1058,7 +1058,7 @@ struct PIDList {
         static UINT CF_IDLIST = RegisterClipboardFormat(CFSTR_SHELLIDLIST);
 
         FORMATETC fetc;
-        fetc.cfFormat = CF_IDLIST;
+        fetc.cfFormat = (CLIPFORMAT)CF_IDLIST;
         fetc.ptd = NULL;
         fetc.dwAspect = DVASPECT_CONTENT;
         fetc.lindex = -1;

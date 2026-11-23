@@ -808,7 +808,7 @@ struct String
     String &operator=(LPCSTR s) {assign(s); return *this;}
     void assign(LPCSTR s) {if (s) {TCHAR b[BUFFER_LEN]; super::assign(b, MultiByteToWideChar(CP_ACP, 0, s, -1, b, BUFFER_LEN) - 1);} else erase();}
     void assign(LPCSTR s, int l) {if (s) {TCHAR b[BUFFER_LEN]; super::assign(b, MultiByteToWideChar(CP_ACP, 0, s, l, b, BUFFER_LEN));} else erase();}
-    void assign(const BStr &s) {int l = s.length(); super::assign(s, l);}
+    void assign(const BStr &s) {int l = (int)s.length(); super::assign(s, l);}
 #else
     String(LPCWSTR s) {assign(s);}
     String(LPCWSTR s, int l) {assign(s, l);}
@@ -922,7 +922,7 @@ struct FmtString : public String {
 struct ANS {
     ANS(LPCWSTR s)
     {
-        int l = wcslen(s) + 1;
+        int l = (int)wcslen(s) + 1;
         _str = (LPSTR) malloc(2 * l);
 
         if (WideCharToMultiByte(CP_ACP, 0, s, -1, _str, 2 * l, 0, 0) <= 0)
@@ -980,7 +980,7 @@ template<typename FCT> struct DynamicFct {
     {
         HMODULE hModule = GetModuleHandle(moduleName);
 
-        _fct = (FCT) GetProcAddress(hModule, (LPCSTR)ordinal);
+        _fct = (FCT) GetProcAddress(hModule, MAKEINTRESOURCEA(ordinal));
     }
 
     DynamicFct(LPCTSTR moduleName, LPCSTR name)
@@ -1004,7 +1004,7 @@ template<typename FCT> struct DynamicLoadLibFct {
     {
         _hModule = LoadLibrary(moduleName);
         if (_hModule) {
-            _fct = (FCT)GetProcAddress(_hModule, (LPCSTR)ordinal);
+            _fct = (FCT)GetProcAddress(_hModule, MAKEINTRESOURCEA(ordinal));
         }
     }
 

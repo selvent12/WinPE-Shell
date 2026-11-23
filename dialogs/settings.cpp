@@ -105,7 +105,7 @@ int DesktopSettingsDlg::Notify(int id, NMHDR *pnmh)
 #ifdef _WIN64
         SetWindowLongPtr(_hwnd, DWLP_MSGRESULT, (LPARAM)GetDlgItem(_hwnd, IDC_ICON_ALIGN_0 + _alignment_cur));
 #else
-        SetWindowLongPtr(_hwnd, DWL_MSGRESULT, (LPARAM)GetDlgItem(_hwnd, IDC_ICON_ALIGN_0 + _alignment_cur));
+        SetWindowLongPtr(_hwnd, DWLP_MSGRESULT, (LPARAM)GetDlgItem(_hwnd, IDC_ICON_ALIGN_0 + _alignment_cur));
 #endif
         break;
 

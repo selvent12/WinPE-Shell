@@ -172,7 +172,7 @@ BackgroundWindow::BackgroundWindow(HWND hwnd)
 #ifdef _WIN64
     SetClassLongPtr(hwnd, GCLP_HBRBACKGROUND, COLOR_BACKGROUND+1);
 #else
-    SetClassLongPtr(hwnd, GCL_HBRBACKGROUND, COLOR_BACKGROUND+1);
+    SetClassLongPtr(hwnd, GCLP_HBRBACKGROUND, COLOR_BACKGROUND+1);
 #endif
 
     _display_version = RegGetDWORDValue(HKEY_CURRENT_USER, TEXT("Control Panel\\Desktop"), TEXT("PaintDesktopVersion"), 1);
@@ -456,7 +456,7 @@ int VK_WIN_HOOK()
     }
     BYTE bVkey2 = 0;
     if (key2.length() >= 2 && key2.at(0) == TEXT('F')) {
-        bVkey2 = VK_F1 + _wtoi(key2.substr(1).c_str());
+        bVkey2 = (BYTE)(VK_F1 + _wtoi(key2.substr(1).c_str()));
         if (bVkey2 < VK_F1 || bVkey2 > VK_F12) bVkey2 = 0;
     } else {
         bVkey2 = (BYTE)(key2.at(0));
@@ -530,7 +530,7 @@ void DesktopWindow::NotificationReceipt(WPARAM wparam, LPARAM lparam)
     if (pt.x == -1) return;
 
     HRESULT hr = S_OK;
-    TCHAR *eventname = SHNotify_GetEventStr(lparam);
+    TCHAR *eventname = SHNotify_GetEventStr((UINT)lparam);
     _log_(eventname);
     SHNOTIFYSTRUCT shns;
     CopyMemory(&shns, (void *)wparam, sizeof(shns));
@@ -1213,7 +1213,7 @@ void PrintMenuInfo(HMENU hmenu, IContextMenu *pcm, const TCHAR *space)
         if (GetMenuItemInfo(hmenu, i, TRUE, &mmi)) {
             pcm->GetCommandString(i, GCS_VERBW, NULL, (char *)verbbuffer, MAX_PATH);
             GetMenuString(hmenu, mmi.wID, namebuffer, MAX_PATH, MF_BYCOMMAND);
-            _log_(FmtString(TEXT("%s%d |%s|%s| %x"), space, mmi.wID, verbbuffer, namebuffer, mmi.hSubMenu));
+            _log_(FmtString(TEXT("%s%d |%s|%s| %p"), space, mmi.wID, verbbuffer, namebuffer, mmi.hSubMenu));
             if (mmi.hSubMenu) {
                 PrintMenuInfo(mmi.hSubMenu, pcm, L" ");
             }

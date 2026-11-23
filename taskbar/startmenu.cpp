@@ -701,7 +701,7 @@ void StartMenu::ProcessKey(int vk)
 
     default:
         if (vk >= '0' && vk <= 'Z')
-            JumpToNextShortcut(vk);
+            JumpToNextShortcut((TCHAR)vk);
     }
 }
 

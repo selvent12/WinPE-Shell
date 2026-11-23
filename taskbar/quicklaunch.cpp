@@ -225,7 +225,7 @@ void QuickLaunchBar::AddButton(int id, HBITMAP hbmp, LPCTSTR name, Entry *entry,
 
     _entries[id] = qle;
 
-    TBBUTTON btn = {0, 0, flags, BTNS_BUTTON | BTNS_NOPREFIX, {0, 0}, 0, 0};
+    TBBUTTON btn = {0, 0, (BYTE)flags, BTNS_BUTTON | BTNS_NOPREFIX, {0, 0}, 0, 0};
 
     btn.idCommand = id;
     btn.iBitmap = bmp_idx;

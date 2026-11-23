@@ -865,14 +865,14 @@ void ResizeManager::Resize(int dx, int dy)
 Button::Button(HWND parent, LPCTSTR title, int left, int top, int width, int height,
                int id, DWORD flags, DWORD exStyle)
     :  WindowHandle(CreateWindowEx(exStyle, TEXT("BUTTON"), title, flags, left, top, width, height,
-                                   parent, (HMENU)id, g_Globals._hInstance, 0))
+                                   parent, (HMENU)(UINT_PTR)id, g_Globals._hInstance, 0))
 {
 }
 
 SWButton::SWButton(HWND parent, LPCTSTR title, int left, int top, int width, int height,
                    int id, DWORD flags, DWORD exStyle)
     : WindowHandle(CreateWindowEx(exStyle, TEXT("Start"), title, flags, left, top, width, height,
-                                  parent, (HMENU)id, g_Globals._hInstance, 0))
+                                  parent, (HMENU)(UINT_PTR)id, g_Globals._hInstance, 0))
 {
 }
 
@@ -889,7 +889,7 @@ LRESULT OwnerdrawnButton::WndProc(UINT nmsg, WPARAM wparam, LPARAM lparam)
 Static::Static(HWND parent, LPCTSTR title, int left, int top, int width, int height,
                int id, DWORD flags, DWORD exStyle)
     :  WindowHandle(CreateWindowEx(exStyle, TEXT("STATIC"), title, flags, left, top, width, height,
-                                   parent, (HMENU)id, g_Globals._hInstance, 0))
+                                   parent, (HMENU)(UINT_PTR)id, g_Globals._hInstance, 0))
 {
 }
 
