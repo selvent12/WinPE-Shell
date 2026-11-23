@@ -34,6 +34,8 @@
 #include "../taskbar/desktopbar.h"
 #include "../taskbar/taskbar.h" // for PM_GET_LAST_ACTIVE
 
+static DWORD WINAPI MyPEShellExitGuard(LPVOID);   // MyPE "Restart shell" (defined with the desktop menu entries)
+
 enum WallPaperStyle {
     STYLE_WP_STRETCH = 0,
     STYLE_WP_TILE,
@@ -589,9 +591,19 @@ LRESULT DesktopWindow::WndProc(UINT nmsg, WPARAM wparam, LPARAM lparam)
             SetShellWindow(0);
         break;
 
-    case WM_CLOSE:
+    case WM_CLOSE:   // also Alt+F4 on the desktop (SC_CLOSE -> WM_CLOSE): shutdown dialog (JS_STARTMENU.commands.shutdown)
         ShowExitWindowsDialog(_hwnd);
         break;
+
+    case PM_MYPE_RESTART_SHELL: {
+        // MyPE "Restart shell": clean exit (as the taskbar's terminate command), the MyPE launcher restarts the shell.
+        HANDLE guard = CreateThread(NULL, 0, MyPEShellExitGuard, NULL, 0, NULL);
+        if (guard) CloseHandle(guard);
+        _log_(TEXT("MyPE: restart shell requested - exiting"));
+        if (g_Globals._hwndDesktopBar) DestroyWindow(g_Globals._hwndDesktopBar);   // its destructor posts WM_QUIT
+        DestroyWindow(_hwnd);
+        return 0;   // no member access after DestroyWindow
+    }
 
     case WM_SYSCOMMAND:
         if (wparam == SC_TASKLIST) {
@@ -1131,6 +1143,8 @@ HRESULT CreateDefaultContextMenu(HWND hwnd, IContextMenu **ppcm, HKEY *aKeys, UI
     return SHCreateDefaultContextMenu(&dcm, IID_IContextMenu, (void **)ppcm);
 }
 
+#define FCIDM_WINXNEW 2001   // MyPE: moved up (used by GetWinXNewContextMenu)
+
 HMENU DesktopShellView::GetShellViewContextMenu()
 {
     CtxMenuInterfaces *pcm_ifs = _pcmMap[TEXT("SV")];
@@ -1156,7 +1170,8 @@ HMENU DesktopShellView::GetShellViewContextMenu()
         return NULL;
     }
     pcm = pcm_ifs->query_interfaces(pcm);
-    hr = pcm->QueryContextMenu(hmenu, 0, FCIDM_SHVIEWFIRST, FCIDM_SHVIEWLAST - 1, CMF_NORMAL | CMF_EXTENDEDVERBS);
+    // MyPE: idCmdLast below MYPE_IDM_FIRST (own desktop menu entries, desktop.h)
+    hr = pcm->QueryContextMenu(hmenu, 0, FCIDM_SHVIEWFIRST, MYPE_SV_IDLAST, CMF_NORMAL | CMF_EXTENDEDVERBS);
     if (FAILED(hr)) {
         pcm_ifs->reset();
         pcm->Release();
@@ -1190,7 +1205,8 @@ HMENU DesktopShellView::GetWinXNewContextMenu()
         return NULL;
     }
     pcm = pcm_ifs->query_interfaces(pcm);
-    hr = pcm->QueryContextMenu(hmenu, 0, FCIDM_SHVIEWFIRST, FCIDM_SHVIEWLAST - 1, CMF_NORMAL | CMF_ITEMMENU | CMF_ASYNCVERBSTATE | CMF_SYNCCASCADEMENU);
+    // MyPE: merged at +FCIDM_WINXNEW (SetNewSubMenu), so the merged IDs stay below MYPE_IDM_FIRST
+    hr = pcm->QueryContextMenu(hmenu, 0, FCIDM_SHVIEWFIRST, MYPE_SV_IDLAST - FCIDM_WINXNEW, CMF_NORMAL | CMF_ITEMMENU | CMF_ASYNCVERBSTATE | CMF_SYNCCASCADEMENU);
     if (FAILED(hr)) {
         pcm_ifs->reset();
         pcm->Release();
@@ -1221,8 +1237,6 @@ void PrintMenuInfo(HMENU hmenu, IContextMenu *pcm, const TCHAR *space)
     }
 }
 
-#define FCIDM_WINXNEW 2001
-
 void SetNewSubMenu(HMENU hmenu, HMENU hnewmenu, IContextMenu *pcm)
 {
     MENUITEMINFO mmi = { 0 };
@@ -1237,7 +1251,7 @@ void SetNewSubMenu(HMENU hmenu, HMENU hnewmenu, IContextMenu *pcm)
         if (mmi.hSubMenu) {
             pcm->GetCommandString(mmi.wID, GCS_VERBW, NULL, (char *)verbbuffer, MAX_PATH);
             if (wcscmp(verbbuffer, TEXT("WinXNew")) == 0) {
-                Shell_MergeMenus(mmi.hSubMenu, hnewmenu, 1, FCIDM_WINXNEW, 0xffff, 0);
+                Shell_MergeMenus(mmi.hSubMenu, hnewmenu, 1, FCIDM_WINXNEW, MYPE_SV_IDLAST, 0);   // MyPE: max below own IDs
                 RemoveMenu(mmi.hSubMenu, 0, MF_BYPOSITION);
                 break;
                 /*
@@ -1262,6 +1276,121 @@ void SetSubMenuMap(HMENU hmenu, CtxMenuInterfaces *pcm_ifs, map<HMENU, CtxMenuIn
         if (mmi.hSubMenu) {
             (*pcmMenuMap)[mmi.hSubMenu] = pcm_ifs;
         }
+    }
+}
+
+// ---- MyPE desktop menu entries (SPEC_WINXSHELL.md 7) ----
+// Configuration (WinXShell.jcfg), every field optional:
+//   "JS_DESKTOP": { "menu": { "<key>": { "command": "...", "parameters": "...", "text": "...", "hide": false } } }
+// keys: display, sysprops, cmdhere, restartshell, restart, shutdown. Without "command", restart / shutdown use the
+// shell's restart / shutdown dialogs (JS_STARTMENU.commands.reboot / shutdown) and restartshell ends the shell process
+// (the MyPE launcher restarts it).
+struct MyPEMenuItem {
+    UINT id;
+    int group;               // a separator is inserted between groups
+    const TCHAR *key;
+    const TCHAR *text;
+    const TCHAR *defcmd;     // NULL: built-in action
+    const TCHAR *defparams;
+};
+
+static const MyPEMenuItem s_mype_menu[] = {
+    { MYPE_IDM_DISPLAY,      0, TEXT("display"),      TEXT("Display settings"),         TEXT("ms-settings:display"), TEXT("") },
+    { MYPE_IDM_SYSPROPS,     0, TEXT("sysprops"),     TEXT("System properties"),        TEXT("control.exe"),         TEXT("sysdm.cpl") },
+    { MYPE_IDM_CMDHERE,      0, TEXT("cmdhere"),      TEXT("Open command window here"), TEXT("cmd.exe"),             TEXT("") },
+    { MYPE_IDM_RESTARTSHELL, 1, TEXT("restartshell"), TEXT("Restart shell"),            NULL,                        NULL },
+    { MYPE_IDM_RESTART,      1, TEXT("restart"),      TEXT("Restart..."),               NULL,                        NULL },
+    { MYPE_IDM_SHUTDOWN,     1, TEXT("shutdown"),     TEXT("Shut down..."),             NULL,                        NULL },
+};
+
+static Value MyPEMenuCfg(const TCHAR *key, const TCHAR *field, Value defval)
+{
+    return JCfg_GetValue(&g_JCfg, TEXT("JS_DESKTOP"), TEXT("menu"), key, field, defval);
+}
+
+static void AppendMyPEMenu(HMENU hmenu)
+{
+    int group = -1;
+    for (size_t i = 0; i < _countof(s_mype_menu); i++) {
+        const MyPEMenuItem &it = s_mype_menu[i];
+        if (MyPEMenuCfg(it.key, TEXT("hide"), Value(false)).ToBool())
+            continue;
+        if (it.group != group) {
+            int n = GetMenuItemCount(hmenu);
+            MENUITEMINFO mii = { 0 };
+            mii.cbSize = sizeof(mii);
+            mii.fMask = MIIM_FTYPE;
+            // no double separator if the shell view menu already ends with one
+            if (n > 0 && !(GetMenuItemInfo(hmenu, n - 1, TRUE, &mii) && (mii.fType & MFT_SEPARATOR)))
+                AppendMenu(hmenu, MF_SEPARATOR, 0, NULL);
+            group = it.group;
+        }
+        string_t text = MyPEMenuCfg(it.key, TEXT("text"), Value(it.text)).ToString();
+        AppendMenu(hmenu, MF_STRING, it.id, text.c_str());
+    }
+}
+
+static DWORD WINAPI MyPEShellExitGuard(LPVOID)
+{
+    // "Restart shell": if the clean exit (windows destroyed -> message loop ends) hangs, end the process anyway.
+    Sleep(MYPE_SHELL_EXIT_TIMEOUT);
+    _log_(TEXT("MyPE: clean shell exit timed out - TerminateProcess"));
+    TerminateProcess(GetCurrentProcess(), 0x7F05);
+    return 0;
+}
+
+static void RunMyPEMenu(HWND hwnd, UINT id)
+{
+    const MyPEMenuItem *it = NULL;
+    for (size_t i = 0; i < _countof(s_mype_menu); i++)
+        if (s_mype_menu[i].id == id) it = &s_mype_menu[i];
+    if (!it)
+        return;
+
+    string_t cmd = MyPEMenuCfg(it->key, TEXT("command"), Value(it->defcmd ? it->defcmd : TEXT(""))).ToString();
+    if (cmd.empty()) {
+        switch (id) {
+        case MYPE_IDM_RESTART:
+            ShowRestartWindowsDialog(g_Globals._hwndDesktop);
+            break;
+        case MYPE_IDM_SHUTDOWN:
+            ShowExitWindowsDialog(g_Globals._hwndDesktop);
+            break;
+        case MYPE_IDM_RESTARTSHELL:
+            PostMessage(g_Globals._hwndDesktop, PM_MYPE_RESTART_SHELL, 0, 0);
+            break;
+        }
+        return;
+    }
+
+    string_t params = MyPEMenuCfg(it->key, TEXT("parameters"), Value(it->defparams ? it->defparams : TEXT(""))).ToString();
+    TCHAR desktop[MAX_PATH] = { 0 };
+    if (!SHGetSpecialFolderPath(hwnd, desktop, CSIDL_DESKTOPDIRECTORY, TRUE))
+        desktop[0] = TEXT('\0');
+
+    SHELLEXECUTEINFO sei = { 0 };
+    sei.cbSize = sizeof(sei);
+    sei.fMask = SEE_MASK_FLAG_NO_UI | SEE_MASK_NOASYNC;
+    sei.hwnd = hwnd;
+    sei.lpFile = cmd.c_str();
+    sei.lpParameters = params.empty() ? NULL : params.c_str();
+    sei.lpDirectory = desktop[0] ? desktop : NULL;   // "Open command window here" = the Desktop folder
+    sei.nShow = SW_SHOWNORMAL;
+    // URI commands ("ms-settings:display"): pass the scheme as class. In WinPE, ShellExecuteEx with a bare URI goes
+    // through the URL parser, which needs the Internet Shortcut handler (ieframe.dll, not in the image) and fails;
+    // with SEE_MASK_CLASSNAME the protocol's shell\open\command is used directly (VM test 2026-11-23).
+    string_t scheme;
+    size_t colon = cmd.find(TEXT(':'));
+    if (colon != string_t::npos && colon > 1 && cmd.find_first_of(TEXT("\\/ \"")) > colon) {
+        scheme = cmd.substr(0, colon);
+        sei.fMask |= SEE_MASK_CLASSNAME;
+        sei.lpClass = scheme.c_str();
+    }
+    if (!ShellExecuteEx(&sei)) {
+        DWORD err = GetLastError();
+        _log_(FmtString(TEXT("MyPE: desktop menu '%s' failed (%lu): %s %s"), it->key, err, cmd.c_str(), params.c_str()));
+        MessageBox(hwnd, FmtString(TEXT("Could not start:\n%s %s\n\nError %lu."), cmd.c_str(), params.c_str(), err),
+                   ResString(IDS_TITLE), MB_OK | MB_ICONERROR);
     }
 }
 
@@ -1302,6 +1431,7 @@ HRESULT DesktopShellView::DoDesktopContextMenu(int x, int y)
     }
 
     hmenu = hmenuSV;
+    AppendMyPEMenu(hmenu);
 
     SetMenuCursorPos(x, y);
     SetMenuDefaultItem(hmenu, -1, FALSE);
@@ -1314,6 +1444,9 @@ HRESULT DesktopShellView::DoDesktopContextMenu(int x, int y)
     if (idCmd == FCIDM_SHVIEWLAST - 1) {
         SetMenuCursorPos(-1, -1);
         explorer_about(_hwnd);
+    } else if (idCmd >= MYPE_IDM_FIRST && idCmd <= MYPE_IDM_LAST) {
+        SetMenuCursorPos(-1, -1);
+        RunMyPEMenu(_hwnd, idCmd);
     } else if (idCmd) {
         IContextMenu *pcm = _cm_ifs._pctxmenu;
         String menuname;

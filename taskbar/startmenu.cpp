@@ -2140,6 +2140,17 @@ void ShowExitWindowsDialog(HWND hwndOwner)
         MessageBox(hwndOwner, TEXT("ExitWindowsDialog() not yet implemented in SHELL32"), ResString(IDS_TITLE), MB_OK);
 }
 
+void ShowRestartWindowsDialog(HWND hwndOwner)
+{
+    // same as StartMenuHandler::ShowRestartDialog (protected): JS_STARTMENU.commands.reboot, else the shell32 dialog
+    static DynamicFct<RESTARTWINDOWSDLG> RestartDlg(TEXT("SHELL32"), 59);
+    if (CommandHook(hwndOwner, TEXT("reboot")) == 1) return;
+    if (RestartDlg)
+        (*RestartDlg)(hwndOwner, (LPWSTR)L"You selected restart.\n\n", EWX_REBOOT);
+    else
+        MessageBox(hwndOwner, TEXT("RestartDlg() not yet implemented in SHELL32"), ResString(IDS_TITLE), MB_OK);
+}
+
 void StartMenuHandler::ShowRestartDialog(HWND hwndOwner, UINT flags)
 {
     static DynamicFct<RESTARTWINDOWSDLG> RestartDlg(TEXT("SHELL32"), 59);

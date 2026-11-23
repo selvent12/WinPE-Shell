@@ -56,6 +56,7 @@ extern void ShowLaunchDialog(HWND hwndOwner);
 extern void ShowLogoffDialog(HWND hwndOwner);
 // show shutdown dialog
 extern void ShowExitWindowsDialog(HWND hwndOwner);
+extern void ShowRestartWindowsDialog(HWND hwndOwner);   // MyPE: Start menu "Restart" path, also used by the desktop menu
 
 #ifdef __cplusplus
 } // extern "C"
