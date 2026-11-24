@@ -39,7 +39,7 @@
 #define PM_GET_ICON_ALGORITHM   (WM_APP+0x1A)
 #define PM_MYPE_RESTART_SHELL   (WM_APP+0x30)   // MyPE: desktop menu "Restart shell" (shell exits, MyPEStart restarts it)
 
-// MyPE desktop background menu entries (SPEC_WINXSHELL.md 7). The shell view and "New" menus get IDs below
+// MyPE desktop background menu entries (docs/FEATURES.md). The shell view and "New" menus get IDs below
 // MYPE_IDM_FIRST only, so these never collide with shell verbs.
 #define MYPE_IDM_FIRST          0x7F00
 #define MYPE_IDM_DISPLAY        0x7F00
