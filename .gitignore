@@ -1,0 +1,15 @@
+# build output
+/out/
+*.obj
+*.pch
+*.pdb
+*.ilk
+*.exp
+*.lib
+*.idb
+*.tlog
+*.log
+.vs/
+x64/
+Release/
+Debug/
