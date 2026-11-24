@@ -16,6 +16,10 @@ Base: PExplorer branch `WinXShell_shellpart` @ `5f8b886` (2018-08-19).
 - **07** Desktop context menu: Display settings, System properties, Open command window here, Restart shell,
   Restart..., Shut down... (configurable, see docs/CONFIGURATION.md). "Restart shell" = clean exit (a launcher or
   watchdog restarts the shell), with an 8 s safety timeout.
+- **08** Windows 7 style two-column Start menu (`JS_STARTMENU.style = "win7"`, `taskbar/startmenu7.cpp`): pinned
+  programs, All Programs tree, search (Enter without a match runs the text), configurable right column, Shut down +
+  Restart menu; `JS_STARTMENU.extra_folders` adds programs found at run time (any drive, background scan). The
+  classic menu stays the default.
 - Repository layout: shell sources moved to `src/`.
 
 ### UI utility (`ui/`, new)

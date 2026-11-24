@@ -27,7 +27,11 @@ Main changes compared with the upstream shell (see [CHANGELOG.md](CHANGELOG.md))
 - no writes to `Winlogon\Shell`, no `Run`/`RunOnce` processing, no network library;
 - empty or not-ready drives no longer raise exception dialogs;
 - a richer desktop context menu (Display settings, System properties, Open command window here, Restart shell,
-  Restart..., Shut down...).
+  Restart..., Shut down...);
+- an optional Windows 7 style Start menu (pinned programs, All Programs, search, shut down menu) that also lists
+  programs found at run time in configurable folders on any drive (`JS_STARTMENU.style`, `extra_folders`).
+
+![Windows 7 style Start menu](docs/img/startmenu-win7-shutdown.png)
 
 Features of the UI utility: [docs/FEATURES.md](docs/FEATURES.md).
 

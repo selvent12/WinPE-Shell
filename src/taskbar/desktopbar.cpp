@@ -33,6 +33,7 @@
 #include "desktopbar.h"
 #include "taskbar.h"
 #include "startmenu.h"
+#include "startmenu7.h"
 #include "traynotify.h"
 #include "quicklaunch.h"
 
@@ -226,6 +227,7 @@ LRESULT DesktopBar::Init(LPCREATESTRUCT pcs)
     // prepare Startmenu, but hide it for now
     _startMenuRoot = GET_WINDOW(StartMenuRoot, StartMenuRoot::Create(_hwndStartButton, STARTMENUROOT_ICON_SIZE));
     _startMenuRoot->_hwndStartButton = _hwndStartButton;
+    StartMenu7_Prefetch();
 
     return 0;
 }
@@ -311,7 +313,7 @@ void DesktopBar::ProcessHotKey(int id_hotkey)
 {
     switch (id_hotkey) {
     case IDHK_DESKTOP: {
-        if (_startMenuRoot && _startMenuRoot->IsStartMenuVisible()) {
+        if ((_startMenuRoot && _startMenuRoot->IsStartMenuVisible()) || StartMenu7_IsVisible()) {
             ShowOrHideStartMenu();
         } else {
             g_Globals._desktop.ToggleMinimize();
@@ -668,6 +670,11 @@ int DesktopBar::Command(int id, int code)
 
 void DesktopBar::ShowOrHideStartMenu()
 {
+    if (StartMenu7_Enabled()) {     // JS_STARTMENU.style = "win7" (startmenu7.cpp)
+        StartMenu7_Toggle(_hwndStartButton);
+        return;
+    }
+
     if (_startMenuRoot) {
         // set the Button, if not set
         if (!Button_GetState(_hwndStartButton))

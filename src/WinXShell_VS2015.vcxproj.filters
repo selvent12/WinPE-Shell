@@ -42,6 +42,9 @@
     <ClCompile Include="taskbar\startmenu.cpp">
       <Filter>taskbar</Filter>
     </ClCompile>
+    <ClCompile Include="taskbar\startmenu7.cpp">
+      <Filter>taskbar</Filter>
+    </ClCompile>
     <ClCompile Include="taskbar\taskbar.cpp">
       <Filter>taskbar</Filter>
     </ClCompile>
