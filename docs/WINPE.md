@@ -34,6 +34,8 @@ All files mentioned are **Microsoft files taken from the matching `install.wim`*
 - `start ms-settings:...` typed in `cmd` fails in WinPE ("The specified module could not be found"): a bare URI goes
   through the URL parser in `ieframe.dll`, which WinPE lacks. Programs that use `ShellExecuteEx` with the protocol
   class (as the desktop menu does) work.
-- DPI scaling is read at session start only; choose it when building the image (`LogPixels`).
+- DPI scaling: `LogPixels` is read at session start only, but the per-monitor scale can be changed live
+  (`MyPEUI.exe scale <percent>`, tested on 26H2): processes started afterwards get the new DPI. The shell manifest is
+  system DPI aware, so a shell restart draws the taskbar sharp at the new scale.
 - The Windows 11 Explorer (`explorer.exe`) itself cannot run as the WinPE shell (its taskbar needs AppX/XAML
   infrastructure and a real logon session); that is why a separate shell is used.

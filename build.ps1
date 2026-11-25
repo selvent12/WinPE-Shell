@@ -49,7 +49,7 @@ if ($LASTEXITCODE) { throw "MSBuild failed ($LASTEXITCODE), see $log" }
 
 # ---- 2) UI utility + test tools (cl) ----
 & cmd.exe /d /c "`"$vcvars`" >nul 2>nul && set" | ForEach-Object { if ($_ -match '^([^=]+)=(.*)$') { Set-Item "env:$($Matches[1])" $Matches[2] } }
-$uiSrc = 'MyPEUI.c', 'display.c', 'dispcfg.c', 'brightness.c', 'net.c' | ForEach-Object { Join-Path $PSScriptRoot "ui\$_" }
+$uiSrc = 'MyPEUI.c', 'display.c', 'dispcfg.c', 'brightness.c', 'net.c', 'scale.c' | ForEach-Object { Join-Path $PSScriptRoot "ui\$_" }
 $uiLibs = 'kernel32.lib', 'user32.lib', 'gdi32.lib', 'shell32.lib', 'advapi32.lib', 'comctl32.lib', 'ole32.lib', 'oleaut32.lib', 'wbemuuid.lib', 'iphlpapi.lib', 'setupapi.lib', 'cfgmgr32.lib', 'newdev.lib', 'dnsapi.lib'
 Push-Location "$Out\ui"
 try {
@@ -63,7 +63,7 @@ if ($TestTools) {
     New-Item -ItemType Directory -Force "$Out\test" | Out-Null
     Push-Location "$Out\test"
     try {
-        foreach ($t in @(@('MyPEStress', '/SUBSYSTEM:CONSOLE user32.lib'), @('MyPEDump', '/SUBSYSTEM:CONSOLE dbghelp.lib'), @('DlgTest', '/SUBSYSTEM:CONSOLE'))) {
+        foreach ($t in @(@('MyPEStress', '/SUBSYSTEM:CONSOLE user32.lib'), @('MyPEDump', '/SUBSYSTEM:CONSOLE dbghelp.lib'), @('DlgTest', '/SUBSYSTEM:CONSOLE'), @('DpiTest', '/SUBSYSTEM:CONSOLE user32.lib shcore.lib advapi32.lib'))) {
             $a = @('/nologo', '/W4', '/O2', '/MT', '/GS', '/DUNICODE', '/D_UNICODE', (Join-Path $PSScriptRoot "tools\test\$($t[0]).c"), "/Fe:$($t[0]).exe", '/link') + ($t[1] -split ' ')
             & cl.exe @a 2>&1 | Where-Object { $_ -match 'warning|error' }
             if ($LASTEXITCODE) { throw "cl failed for $($t[0])" }

@@ -6,10 +6,11 @@
  * - monitors drawn at their real relative position (1, 2, ...), click = select (or the "Display" list);
  * - mode: Extend / Duplicate / Show only on N (SetDisplayConfig topology);
  * - selected monitor: resolution (modes the driver reports), refresh rate, orientation 0/90/180/270, main display;
- * - scale for all displays from display.json's dpiMode options (uniform100 = 96 dpi, uniform150 = 144 dpi):
- *   HKCU\Control Panel\Desktop LogPixels. Windows reads it when the session starts: VM test 2026-11-23 showed that a shell
- *   restart does NOT change the system DPI, and a PE reboot resets X:, so the window says so ("Restart shell now" =
- *   message PM_MYPE_RESTART_SHELL to the WinXShell desktop window, MyPEStart restarts it, is kept as a convenience);
+ * - scale for all displays, LIVE (scale.c, the per-monitor scale the Settings app sets; VM test 2026-11-25): the list
+ *   offers 100 % up to the largest scale an active display accepts (1920x1080: 175 %); Apply sets every display (each
+ *   clamped to its own maximum) and restarts the shell so the taskbar is drawn sharp at the new DPI ("Restart shell
+ *   now" = message PM_MYPE_RESTART_SHELL to the WinXShell desktop window, MyPEStart restarts it). The default at start
+ *   is "scale" in display.json (Set-DisplayLayout.ps1 -> MyPEUI.exe scale <percent>);
  * - brightness row only when a controllable brightness exists (brightness.c: WMI laptop panel / DDC/CI monitor);
  * - Apply -> "Keep these display settings?" with automatic revert after REVERT_SECONDS;
  * - "Save as default" writes X:\MyPE\config\display.json (RAM disk: this session only).
@@ -24,6 +25,7 @@
 #include "mypeui.h"
 #include "dispcfg.h"
 #include "brightness.h"
+#include "scale.h"
 #include <commctrl.h>
 #include <objbase.h>
 #include <stdlib.h>
@@ -74,8 +76,7 @@ static struct {
     BOOL selectRotation;
 } g;
 
-static const DWORD s_dpiValues[] = { 96, 120, 144 };
-static const wchar_t *s_dpiNames[] = { L"100% (uniform100)", L"125%", L"150% (uniform150)" };
+static int s_scaleMax = 200;   /* largest scale an active display accepts (scale.c), filled at start */
 
 static int S(double v) { return (int)(v * g.s + 0.5); }
 static HWND Ctl(int id) { return GetDlgItem(g.hwnd, id); }
@@ -99,19 +100,6 @@ static DWORD ReadLogPixels(void)
     DWORD v = 0, cb = sizeof(v);
     if (RegGetValueW(HKEY_CURRENT_USER, L"Control Panel\\Desktop", L"LogPixels", RRF_RT_REG_DWORD, NULL, &v, &cb) != ERROR_SUCCESS || !v) v = 96;
     return v;
-}
-
-static BOOL WriteLogPixels(DWORD dpi)
-{
-    HKEY k;
-    DWORD one = 1;
-    LONG rc = RegCreateKeyExW(HKEY_CURRENT_USER, L"Control Panel\\Desktop", 0, NULL, 0, KEY_SET_VALUE, NULL, &k, NULL);
-    if (rc != ERROR_SUCCESS) { Log(L"display: open HKCU\\Control Panel\\Desktop failed rc=%ld", rc); return FALSE; }
-    rc = RegSetValueExW(k, L"LogPixels", 0, REG_DWORD, (const BYTE *)&dpi, sizeof(dpi));
-    if (rc == ERROR_SUCCESS) rc = RegSetValueExW(k, L"Win8DpiScaling", 0, REG_DWORD, (const BYTE *)&one, sizeof(one));
-    RegCloseKey(k);
-    Log(L"display: HKCU LogPixels=%lu Win8DpiScaling=1 rc=%ld", dpi, rc);
-    return rc == ERROR_SUCCESS;
 }
 
 static DWORD SystemDpi(void)
@@ -202,13 +190,10 @@ static const wchar_t *JClose(const wchar_t *q, wchar_t open, wchar_t close)
 
 typedef struct { wchar_t id[32]; long w, h; } CfgMon;
 
-static DWORD DpiFromMode(const wchar_t *mode)
+static const wchar_t *ModeFromDpi(DWORD dpi)
 {
-    if (!_wcsicmp(mode, L"uniform150")) return 144;
-    if (!_wcsicmp(mode, L"uniform125")) return 120;
-    return 96;
+    return dpi >= 192 ? L"uniform200" : dpi >= 168 ? L"uniform175" : dpi >= 144 ? L"uniform150" : dpi >= 120 ? L"uniform125" : L"uniform100";
 }
-static const wchar_t *ModeFromDpi(DWORD dpi) { return dpi >= 144 ? L"uniform150" : (dpi >= 120 ? L"uniform125" : L"uniform100"); }
 
 static void JEsc(const wchar_t *in, wchar_t *out, size_t cch)
 {
@@ -288,8 +273,9 @@ static void SaveDefault(void)
                             L"    { \"id\": \"%s\", \"width\": %lu, \"height\": %lu, \"refresh\": %lu, \"position\": \"%s\", \"x\": %d, \"y\": %d, \"rotation\": %d }%s\r\n",
                             esc, mo->nw, mo->nh, mo->hz, pos, mo->x, mo->y, mo->rot, j + 1 < nids ? L"," : L"");
     }
-    len += _snwprintf_s(txt + len, _countof(txt) - len, _TRUNCATE, L"  ],\r\n  \"dpiMode\": \"%s\",\r\n  \"fallbackResolution\": { \"width\": %ld, \"height\": %ld }\r\n}\r\n",
-                        ModeFromDpi(g.dpiPend), fbw, fbh);
+    /* "scale" (percent) is what the start uses; "dpiMode" stays for the builder's registry default */
+    len += _snwprintf_s(txt + len, _countof(txt) - len, _TRUNCATE, L"  ],\r\n  \"scale\": %lu,\r\n  \"dpiMode\": \"%s\",\r\n  \"fallbackResolution\": { \"width\": %ld, \"height\": %ld }\r\n}\r\n",
+                        g.dpiPend * 100 / 96, ModeFromDpi(g.dpiPend), fbw, fbh);
     (void)len;
     k = WideCharToMultiByte(CP_UTF8, 0, txt, -1, utf8, sizeof(utf8), NULL, NULL);
     h = CreateFileW(MYPE_DISPJSON, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
@@ -482,14 +468,11 @@ static void UpdateEnable(void)
 static void UpdateDpiNote(void)
 {
     wchar_t t[300];
-    /* Windows reads the scale (LogPixels) when the session starts. VM test 2026-11-23: after a shell restart the system
-       DPI of new processes is unchanged, and a PE reboot resets X:. So the note says what really happens. */
+    /* live scale (scale.c): applied at once, the shell restarts to draw the taskbar at the new DPI */
     if (g.dpiPend != g.dpiCur)
-        _snwprintf_s(t, _countof(t), _TRUNCATE, L"Apply saves %lu%%. Windows uses a new scale only from the next start; restarting MyPE resets it. Permanent: dpiMode in config\\display.json (build).", g.dpiPend * 100 / 96);
-    else if (g.dpiCur != g.dpiSystem)
-        _snwprintf_s(t, _countof(t), _TRUNCATE, L"Scale %lu%% is saved, %lu%% stays in use until the next start (a shell restart does not change it).", g.dpiCur * 100 / 96, g.dpiSystem * 100 / 96);
+        _snwprintf_s(t, _countof(t), _TRUNCATE, L"Apply changes all displays to %lu%% now (each up to its own maximum); the taskbar restarts. Open windows of older programs may look blurry until they are reopened.", g.dpiPend * 100 / 96);
     else
-        _snwprintf_s(t, _countof(t), _TRUNCATE, L"Same scale on all displays, set at start (dpiMode in config\\display.json).");
+        _snwprintf_s(t, _countof(t), _TRUNCATE, L"Same scale on all displays. Default at start: \"scale\" in MyPE\\config\\display.json (on the boot drive or in the image).");
     SetWindowTextW(Ctl(IDC_DPINOTE), t);
 }
 
@@ -873,6 +856,8 @@ static int BuildSet(DcSet *set)
     return n;
 }
 
+static void RestartShell(void);
+
 static void Apply(void)
 {
     wchar_t err[200], d[1400];
@@ -880,11 +865,17 @@ static void Apply(void)
     BOOL ok;
     if (g.busy || g.confirming) return;
     if (g.dpiPend != g.dpiCur) {
-        if (WriteLogPixels(g.dpiPend)) { g.dpiCur = g.dpiPend; Log(L"display: scale set to %s (%lu dpi)", ModeFromDpi(g.dpiCur), g.dpiCur); }
-        else SetStatus(L"Could not write the scale setting (see the log).");
+        BOOL changed = FALSE;
+        int pct = (int)(g.dpiPend * 100 / 96);
+        if (Scale_SetAll(pct, &changed)) {
+            g.dpiCur = g.dpiPend;
+            Log(L"display: scale %d%% applied live (changed=%d)", pct, changed);
+            if (changed) RestartShell();
+            SetStatus(L"Scale %d%% applied.%s", pct, changed ? L" The taskbar restarts." : L"");
+        } else SetStatus(L"The scale could not be changed on every display (see the log).");
         UpdateDpiNote();
     }
-    if (!DisplayDirty()) { if (g.dpiCur == g.dpiPend) SetStatus(L"Scale saved in the registry (used from the next start of the session)."); UpdateEnable(); return; }
+    if (!DisplayDirty()) { UpdateEnable(); return; }
     g.busy = TRUE;
     UpdateEnable();
     Dc_Snapshot(&g.snap);
@@ -1020,14 +1011,11 @@ static void MakeControls(HWND h)
     if (!GetDlgItem(h, IDC_BRIGHT)) Log(L"display: brightness trackbar not created err=%lu", GetLastError());
     SendMessageW(GetDlgItem(h, IDC_BRIGHT), TBM_SETRANGE, TRUE, MAKELONG(0, 100));
     SendMessageW(GetDlgItem(h, IDC_BRIGHT), TBM_SETPAGESIZE, 0, 10);
-    for (k = 0; k < (int)_countof(s_dpiValues); k++) {
-        if (s_dpiValues[k] == 120 && g.dpiCur != 120) continue;   /* 125% only if it is already in use (builder: uniform125) */
-        SendMessageW(GetDlgItem(h, IDC_DPI), CB_SETITEMDATA, (WPARAM)SendMessageW(GetDlgItem(h, IDC_DPI), CB_ADDSTRING, 0, (LPARAM)s_dpiNames[k]), (LPARAM)s_dpiValues[k]);
-    }
-    if (g.dpiCur != 96 && g.dpiCur != 120 && g.dpiCur != 144) {
+    /* 100 % .. the largest scale a display accepts (scale.c); item data = dpi (percent * 96 / 100) */
+    for (k = 0; k < SCALE_MAXSTEPS && g_scaleSteps[k] <= s_scaleMax; k++) {
         wchar_t t[32];
-        _snwprintf_s(t, _countof(t), _TRUNCATE, L"%lu%% (current)", g.dpiCur * 100 / 96);
-        SendMessageW(GetDlgItem(h, IDC_DPI), CB_SETITEMDATA, (WPARAM)SendMessageW(GetDlgItem(h, IDC_DPI), CB_ADDSTRING, 0, (LPARAM)t), (LPARAM)g.dpiCur);
+        _snwprintf_s(t, _countof(t), _TRUNCATE, L"%d%%%s", g_scaleSteps[k], (DWORD)(g_scaleSteps[k] * 96 / 100) == g.dpiCur ? L" (current)" : L"");
+        SendMessageW(GetDlgItem(h, IDC_DPI), CB_SETITEMDATA, (WPARAM)SendMessageW(GetDlgItem(h, IDC_DPI), CB_ADDSTRING, 0, (LPARAM)t), (LPARAM)(g_scaleSteps[k] * 96 / 100));
     }
 }
 
@@ -1197,12 +1185,13 @@ int DisplayWindow(const wchar_t *uri, int argc, wchar_t **argv)
     wc.lpfnWndProc = ConfirmProc; wc.lpszClassName = CONF_CLASS; wc.hIcon = NULL;
     if (!RegisterClassExW(&wc)) { Log(L"display: RegisterClass (confirm) failed err=%lu", GetLastError()); return 1; }
 
-    g.dpiCur = g.dpiPend = ReadLogPixels();
-    g.dpiSystem = SystemDpi();
-    {   /* display.json dpiMode, for the log (the registry value is what is in use) */
-        wchar_t *j = ReadTextFile(MYPE_DISPJSON), dm[32] = L"";
-        if (j) { JStr(j, NULL, L"dpiMode", dm, _countof(dm)); free(j); }
-        Log(L"display: scale: LogPixels=%lu system dpi=%lu display.json dpiMode='%s' (%lu)", g.dpiCur, g.dpiSystem, dm, dm[0] ? DpiFromMode(dm) : 0);
+    {   /* scale in use (live, scale.c); the registry value only as a fallback */
+        int cur = 0, max = 0;
+        if (Scale_Query(&cur, &max)) { g.dpiCur = (DWORD)(cur * 96 / 100); s_scaleMax = max; }
+        else g.dpiCur = ReadLogPixels();
+        g.dpiPend = g.dpiCur;
+        g.dpiSystem = SystemDpi();
+        Log(L"display: scale: current %lu%% (displays accept up to %d%%), system dpi=%lu, LogPixels=%lu", g.dpiCur * 100 / 96, s_scaleMax, g.dpiSystem, ReadLogPixels());
     }
 
     /* main display: initial size at its DPI */

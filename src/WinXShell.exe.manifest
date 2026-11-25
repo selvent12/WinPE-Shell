@@ -19,4 +19,11 @@
         />
     </dependentAssembly>
 </dependency>
+<!-- system DPI aware: the shell scales its own sizes with the system DPI (DPI_SX/DPI_SY, read once at start);
+     without it Windows stretches the whole taskbar as a bitmap (blurry at 125/150 %) -->
+<application xmlns="urn:schemas-microsoft-com:asm.v3">
+    <windowsSettings>
+        <dpiAware xmlns="http://schemas.microsoft.com/SMI/2005/WindowsSettings">true</dpiAware>
+    </windowsSettings>
+</application>
 </assembly>

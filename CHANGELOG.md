@@ -27,15 +27,18 @@ Base: PExplorer branch `WinXShell_shellpart` @ `5f8b886` (2018-08-19).
   one group). `JS_STARTMENU.style = "win11"`: the two-column menu with the search box on top, rounded corners and
   highlights, theme colors, floating above the taskbar (centered on the screen with `align: center`). The classic
   look stays the default.
+- **10** System DPI aware manifest (the taskbar was bitmap-stretched, blurry at 125/150 %).
 - Repository layout: shell sources moved to `src/`.
 
 ### UI utility (`ui/`, new)
 - Shutdown dialog (overlay on every monitor, Restart / Shut down, Esc cancels).
 - Display window: Extend / Duplicate / single display, resolution, refresh rate, rotation, main display, 15 s
-  automatic revert, brightness (laptop panels via WMI, external monitors via DDC/CI).
+  automatic revert, brightness (laptop panels via WMI, external monitors via DDC/CI); live scale 100 % .. the largest
+  scale a display accepts (`scale.c`, `MyPEUI.exe scale <percent>`), shell restart after a change.
 - Network: OFF at boot, `net on/off/toggle/status`, tray icon, Wi-Fi window (Native Wifi API, temporary profiles
   only), DNS client handling.
 - Handler for the `ms-settings:` and `ms-availablenetworks:` protocols.
 
 ### Test tools (`tools/test/`, new)
-- `DlgTest` (file dialog reproduction, 5 modes), `MyPEStress` (window/shell stress), `MyPEDump` (minidump writer).
+- `DlgTest` (file dialog reproduction, 5 modes), `MyPEStress` (window/shell stress), `MyPEDump` (minidump writer),
+  `DpiTest` (live per-monitor scale experiment).

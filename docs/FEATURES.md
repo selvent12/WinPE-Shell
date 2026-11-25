@@ -30,7 +30,10 @@
 - Every change is applied with a **"Keep changes?" countdown; without confirmation it reverts after 15 s**.
 - Brightness row, shown only when brightness can be controlled: laptop panels (WMI `WmiMonitorBrightness`) or
   external monitors with DDC/CI (`dxva2.dll`, loaded at run time).
-- Scale (100 % / 150 %) is shown; WinPE applies the DPI only at session start, so it is chosen when the image is built.
+- Scale for all displays, **applied live**: 100 % up to the largest scale a display accepts (1920x1080: 175 %,
+  4K: 300 %+), each display clamped to its own maximum; the shell restarts so the taskbar is drawn sharp at the new
+  DPI. Uses the per-monitor scale of the display configuration API (as the Settings app does), no new session needed.
+  Command line: `MyPEUI.exe scale <percent> [/norestart]`. Default at start: `"scale"` in `display.json` (see WINPE.md).
 - "Save as default" writes the layout to the session's `display.json`; "Restart shell now".
 - Works with the Microsoft Basic Display Adapter (one display) without errors.
 
