@@ -80,10 +80,13 @@ int Scale_Nearest(int pct)
     return g_scaleSteps[best];
 }
 
+/* The scale stays the SAME on every display: the shell is system DPI aware (one DPI for the taskbar, the Start menu
+   and the desktop window that spans all displays), so displays with different scales would draw some of it blurry.
+   The limit is therefore the smallest maximum of all displays (4K + 1920x1080: 175 %). */
 BOOL Scale_Query(int *curPct, int *maxPct)
 {
     ScaleSrc src[16];
-    int n = Paths(src, 16), i, best = -1, found = 0;
+    int n = Paths(src, 16), i, best = 1000, found = 0;
     *curPct = 0; *maxPct = 0;
     for (i = 0; i < n; i++) {
         ScaleGet g;
@@ -91,7 +94,7 @@ BOOL Scale_Query(int *curPct, int *maxPct)
         if (!Get(&src[i], &g)) continue;
         Steps(&g, &rec, &cur, &max);
         found = 1;
-        if (g_scaleSteps[max] > best) best = g_scaleSteps[max];
+        if (g_scaleSteps[max] < best) best = g_scaleSteps[max];
         if (cur >= 0 && (src[i].primary || !*curPct)) *curPct = g_scaleSteps[cur];
     }
     if (!found) return FALSE;
@@ -117,6 +120,14 @@ BOOL Scale_SetAll(int pct, BOOL *changed)
     *changed = FALSE;
     for (k = 0; k < SCALE_MAXSTEPS; k++) if (g_scaleSteps[k] == pct) want = k;
     if (want < 0) { Log(L"scale: %d%% is not a valid scale", pct); return FALSE; }
+    {   /* same scale everywhere: not above the smallest maximum (see Scale_Query) */
+        int cur, lim;
+        if (Scale_Query(&cur, &lim) && pct > lim) {
+            Log(L"scale: %d%% -> %d%% (the largest scale every display accepts)", pct, lim);
+            for (k = 0; k < SCALE_MAXSTEPS; k++) if (g_scaleSteps[k] == lim) want = k;
+            pct = lim;
+        }
+    }
     for (i = 0; i < n; i++) {
         ScaleGet g;
         ScaleSetInfo s;

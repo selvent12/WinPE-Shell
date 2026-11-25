@@ -11,9 +11,10 @@
 /* percent values Windows uses, in order (index = step) */
 extern const int g_scaleSteps[SCALE_MAXSTEPS];
 
-/* current scale of the main display (percent) and the largest scale any active display accepts; FALSE if unknown */
+/* current scale of the main display (percent) and the largest scale EVERY active display accepts (the scale is kept
+   the same on all displays: the shell is system DPI aware); FALSE if unknown */
 BOOL Scale_Query(int *curPct, int *maxPct);
-/* sets every active display to pct (clamped to what each display accepts); *changed = a display changed.
+/* sets every active display to pct (clamped to the largest scale every display accepts); *changed = a display changed.
    Returns FALSE if a display could not be set (details in the log). */
 BOOL Scale_SetAll(int pct, BOOL *changed);
 /* nearest valid step for a percent value (100..500) */

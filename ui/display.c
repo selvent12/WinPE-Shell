@@ -7,8 +7,9 @@
  * - mode: Extend / Duplicate / Show only on N (SetDisplayConfig topology);
  * - selected monitor: resolution (modes the driver reports), refresh rate, orientation 0/90/180/270, main display;
  * - scale for all displays, LIVE (scale.c, the per-monitor scale the Settings app sets; VM test 2026-11-25): the list
- *   offers 100 % up to the largest scale an active display accepts (1920x1080: 175 %); Apply sets every display (each
- *   clamped to its own maximum) and restarts the shell so the taskbar is drawn sharp at the new DPI ("Restart shell
+ *   offers 100 % up to the largest scale EVERY active display accepts (1920x1080: 175 %; one scale on all displays,
+ *   the shell is system DPI aware); Apply sets every display, also after a layout change (a display switched on gets
+ *   Windows' default), and restarts the shell so the taskbar is drawn sharp at the new DPI ("Restart shell
  *   now" = message PM_MYPE_RESTART_SHELL to the WinXShell desktop window, MyPEStart restarts it). The default at start
  *   is "scale" in display.json (Set-DisplayLayout.ps1 -> MyPEUI.exe scale <percent>);
  * - brightness row only when a controllable brightness exists (brightness.c: WMI laptop panel / DDC/CI monitor);
@@ -470,7 +471,7 @@ static void UpdateDpiNote(void)
     wchar_t t[300];
     /* live scale (scale.c): applied at once, the shell restarts to draw the taskbar at the new DPI */
     if (g.dpiPend != g.dpiCur)
-        _snwprintf_s(t, _countof(t), _TRUNCATE, L"Apply changes all displays to %lu%% now (each up to its own maximum); the taskbar restarts. Open windows of older programs may look blurry until they are reopened.", g.dpiPend * 100 / 96);
+        _snwprintf_s(t, _countof(t), _TRUNCATE, L"Apply changes all displays to %lu%% now (the same scale on every display); the taskbar restarts. Open windows of older programs may look blurry until they are reopened.", g.dpiPend * 100 / 96);
     else
         _snwprintf_s(t, _countof(t), _TRUNCATE, L"Same scale on all displays. Default at start: \"scale\" in MyPE\\config\\display.json (on the boot drive or in the image).");
     SetWindowTextW(Ctl(IDC_DPINOTE), t);
@@ -906,6 +907,10 @@ static void Apply(void)
         return;
     }
     Sleep(500);   /* let the mode settle before reading it back */
+    {   /* a display switched on here gets its own default scale from Windows: keep one scale on all displays */
+        BOOL ch = FALSE;
+        if (Scale_SetAll((int)(g.dpiCur * 100 / 96), &ch) && ch) { Log(L"display: scale %lu%% re-applied after the layout change", g.dpiCur * 100 / 96); RestartShell(); }
+    }
     Requery(L"applied");
     EnsureVisible(g.hwnd);
     SetStatus(L"Applied. Confirm within %d seconds or the previous settings come back.", REVERT_SECONDS);
