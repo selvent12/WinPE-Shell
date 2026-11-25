@@ -238,6 +238,18 @@ static void ToggleMute(void)
 
 /* ---------------------------------------------------------------- tray icon */
 
+/* volume window controls from the current state: "<device>  45%", Mute/Unmute, slider (not while being dragged) */
+static void FlyoutControls(BOOL slider)
+{
+    wchar_t t[200];
+    if (!V.fly) return;
+    if (V.level < 0) wcscpy_s(t, _countof(t), L"No audio output device");
+    else _snwprintf_s(t, _countof(t), _TRUNCATE, L"%s   %d%%%s", V.devName[0] ? V.devName : L"Speakers", V.level, V.muted ? L"  (muted)" : L"");
+    SetWindowTextW(V.label, t);
+    SetWindowTextW(V.muteBtn, V.muted ? L"Unmute" : L"Mute");
+    if (slider) SendMessageW(V.slider, TBM_SETPOS, TRUE, V.level < 0 ? 0 : V.level);
+}
+
 static void TrayUpdate(BOOL force)
 {
     NOTIFYICONDATAW nd;
@@ -259,13 +271,7 @@ static void TrayUpdate(BOOL force)
     nd.uFlags = NIF_ICON | NIF_TIP | NIF_MESSAGE; nd.uCallbackMessage = WM_TVCB; nd.hIcon = V.icon;
     if (V.level < 0) wcscpy_s(nd.szTip, _countof(nd.szTip), L"No audio output device");
     else _snwprintf_s(nd.szTip, _countof(nd.szTip), _TRUNCATE, L"%s: %d%%%s", V.devName[0] ? V.devName : L"Speakers", V.level, V.muted ? L" (muted)" : L"");
-    if (V.fly && IsWindowVisible(V.fly)) {   /* keep the open volume window in step */
-        wchar_t t[32];
-        if (GetFocus() != V.slider) SendMessageW(V.slider, TBM_SETPOS, TRUE, V.level < 0 ? 0 : V.level);
-        _snwprintf_s(t, _countof(t), _TRUNCATE, L"%d%%", V.level < 0 ? 0 : V.level);
-        SetWindowTextW(V.label, t);
-        SetWindowTextW(V.muteBtn, V.muted ? L"Unmute" : L"Mute");
-    }
+    if (V.fly && IsWindowVisible(V.fly)) FlyoutControls(GetFocus() != V.slider);   /* keep the open window in step */
     if (V.added && Shell_NotifyIconW(NIM_MODIFY, &nd)) return;
     if (Shell_NotifyIconW(NIM_ADD, &nd)) { if (!V.added) Log(L"tray-vol: icon added (%s %d%%%s)", V.devName, V.level, V.muted ? L" muted" : L""); V.added = TRUE; }
     else { if (V.added || GetTickCount() - V.lastAddTry > 30000) Log(L"tray-vol: Shell_NotifyIcon NIM_ADD failed err=%lu (no tray yet?) - retrying", GetLastError()); V.added = FALSE; V.lastAddTry = GetTickCount(); }
@@ -323,7 +329,7 @@ static void ShowFlyout(void)
     if (x + w > mi.rcWork.right - VS(8)) x = mi.rcWork.right - VS(8) - w;
     if (x < mi.rcWork.left + VS(8)) x = mi.rcWork.left + VS(8);
     LayoutFlyout(w, h);
-    SendMessageW(V.slider, TBM_SETPOS, TRUE, V.level < 0 ? 0 : V.level);
+    FlyoutControls(TRUE);   /* before showing: TrayUpdate only updates a visible window */
     EnableWindow(V.slider, V.level >= 0);
     EnableWindow(V.muteBtn, V.level >= 0);
     TrayUpdate(TRUE);
