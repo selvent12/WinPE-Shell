@@ -31,6 +31,7 @@
 #include "../resource.h"
 
 #include "quicklaunch.h"
+#include "win11style.h"
 
 
 QuickLaunchEntry::QuickLaunchEntry()
@@ -84,6 +85,12 @@ HWND QuickLaunchBar::Create(HWND hwndParent)
                                 IDW_QUICKLAUNCHBAR, 0, 0, 0, NULL, 0, 0, 0, TASKBAR_ICON_SIZE, TASKBAR_ICON_SIZE, sizeof(TBBUTTON));
 
     if (hwnd) {
+        if (W11_Enabled()) {    // same button size as the task buttons: icons vertically centered on the bar
+            int ics = TASKBAR_ICON_SIZE, w = W11_TaskButtonWidth(), h = clnt.bottom - 2;
+            SendMessage(hwnd, TB_SETPADDING, 0, MAKELPARAM(max(0, w - ics), max(0, h - ics)));
+            // the padding alone does not change the size fixed by CreateToolbarEx (VM: 39x38 in a 46 px bar)
+            SendMessage(hwnd, TB_SETBUTTONSIZE, 0, MAKELONG(w, h));
+        }
         new QuickLaunchBar(hwnd);
     }
     return hwnd;
@@ -243,6 +250,8 @@ LRESULT QuickLaunchBar::WndProc(UINT nmsg, WPARAM wparam, LPARAM lparam)
         ReloadShortcuts();
         break;
     }
+    case PM_QL_CUSTOMDRAW:
+        return DrawW11Button((LPNMTBCUSTOMDRAW)lparam);
     case PM_GET_WIDTH: {
         // take line wrapping into account
         int btns = (int)SendMessage(_hwnd, TB_BUTTONCOUNT, 0, 0);
@@ -298,6 +307,64 @@ default: def:
     }
 
     return 0;
+}
+
+// win11 style: the button bitmaps come from the 16 px system image list (too small, drawn at the top): draw the icon
+// itself instead, from the large system image list, scaled to the taskbar icon size and centered, with the rounded
+// hover background of the task buttons
+int QuickLaunchBar::DrawW11Button(LPNMTBCUSTOMDRAW cd)
+{
+    if (cd->nmcd.dwDrawStage == CDDS_PREPAINT)
+        return CDRF_NOTIFYITEMDRAW;
+    if (cd->nmcd.dwDrawStage != CDDS_ITEMPREPAINT)
+        return CDRF_DODEFAULT;
+
+    int id = (int)cd->nmcd.dwItemSpec;
+    QuickLaunchMap::iterator it = _entries.find(id);
+    if (it == _entries.end())
+        return CDRF_DODEFAULT;          // separator
+
+    HDC hdc = cd->nmcd.hdc;
+    RECT rc = cd->nmcd.rc;
+    UINT st = cd->nmcd.uItemState;
+    FillRect(hdc, &rc, TASKBAR_BRUSH());
+    RECT bg = { rc.left + DPI_SX(2), rc.top + DPI_SY(4), rc.right - DPI_SX(2), rc.bottom - DPI_SY(4) };
+    if (st & CDIS_SELECTED)
+        W11_FillRound(hdc, bg, DPI_SX(4), W11_Color(W11C_PRESSED));
+    else if (st & CDIS_HOT)
+        W11_FillRound(hdc, bg, DPI_SX(4), W11_Color(W11C_HOVER));
+
+    ICON_ID icon_id = ICID_NONE;
+    if (it->second._entry)
+        icon_id = (ICON_ID)it->second._entry->_icon_id;
+    else if (id == ID_MINIMIZE_ALL)
+        icon_id = ICID_MINIMIZE;
+    else if (id == ID_EXPLORE)
+        icon_id = ICID_EXPLORER;
+
+    int ics = TASKBAR_ICON_SIZE;
+    int x = (rc.left + rc.right - ics) / 2, y = (rc.top + rc.bottom - ics) / 2;
+    const Icon &icon = g_Globals._icon_cache.get_icon(icon_id);
+    HICON h = icon.get_hicon();
+    if (h) {
+        DrawIconEx(hdc, x, y, h, ics, ics, 0, NULL, DI_NORMAL);
+    } else if (icon.get_sysiml_idx() >= 0) {
+        static HIMAGELIST large = NULL;
+        if (!large) {
+            SHFILEINFO sfi;
+            large = (HIMAGELIST)SHGetFileInfo(TEXT("C:\\"), 0, &sfi, sizeof(sfi), SHGFI_SYSICONINDEX | SHGFI_LARGEICON);
+        }
+        HICON hl = large ? ImageList_GetIcon(large, icon.get_sysiml_idx(), ILD_NORMAL) : 0;
+        if (hl) {
+            DrawIconEx(hdc, x, y, hl, ics, ics, 0, NULL, DI_NORMAL);
+            DestroyIcon(hl);
+        }
+    } else if (it->second._hbmp) {
+        MemCanvas mem;
+        BitmapSelection sel(mem, it->second._hbmp);
+        BitBlt(hdc, x, y, ics, ics, mem, 0, 0, SRCCOPY);
+    }
+    return CDRF_SKIPDEFAULT;
 }
 
 int QuickLaunchBar::Command(int id, int code)

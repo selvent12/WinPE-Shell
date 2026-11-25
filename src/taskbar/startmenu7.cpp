@@ -23,6 +23,7 @@
 #include <algorithm>
 
 #include "startmenu7.h"
+#include "win11style.h"
 #include "../jconfig/jcfg.h"
 
 #define SM7_CLASS   TEXT("WinPEShellStartMenu7")
@@ -318,7 +319,15 @@ private:
     COLORREF _clrLeft = RGB(255, 255, 255), _clrLeftText = RGB(20, 20, 20), _clrHot = RGB(204, 232, 255),
              _clrHotBorder = RGB(153, 209, 255), _clrRight = RGB(30, 34, 48), _clrRightText = RGB(240, 240, 240),
              _clrRightHot = RGB(62, 70, 92), _clrBorder = RGB(80, 86, 100), _clrSep = RGB(225, 225, 225),
-             _clrGray = RGB(110, 110, 110);
+             _clrGray = RGB(110, 110, 110), _clrSearch = RGB(255, 255, 255), _clrShut = RGB(48, 54, 70);
+
+    // JS_STARTMENU.style = "win11": same menu, Windows 11 look (search box on top, rounded corners and highlights,
+    // colors of JS_TASKBAR.theme, floating 8 px above the taskbar, centered on the screen with JS_TASKBAR.align center)
+    bool _w11 = false;
+    HBRUSH _brSearch = NULL;
+    void SetColors();
+    void DrawSearch(HDC hdc);
+    void FillItem(HDC hdc, const RECT &rc, COLORREF c, COLORREF frame);
 
     void Create();
     void LoadConfig();
@@ -352,8 +361,30 @@ private:
     LRESULT Proc(UINT msg, WPARAM wp, LPARAM lp);
 };
 
+void StartMenu7::SetColors()
+{
+    _w11 = JCFG2_DEF("JS_STARTMENU", "style", TEXT("classic")).ToString(std::wstring(L"classic")).compare(L"win11") == 0;
+    if (!_w11)
+        return;                         // the Windows 7 colors above
+    if (W11_Dark()) {
+        _clrLeft = RGB(40, 40, 40);  _clrRight = RGB(33, 33, 33);  _clrLeftText = _clrRightText = RGB(255, 255, 255);
+        _clrHot = RGB(58, 58, 58);   _clrHotBorder = _clrHot;      _clrRightHot = RGB(52, 52, 52);
+        _clrBorder = RGB(72, 72, 72); _clrSep = RGB(62, 62, 62);   _clrGray = RGB(165, 165, 165);
+        _clrSearch = RGB(29, 29, 29); _clrShut = RGB(45, 45, 45);
+    } else {
+        _clrLeft = RGB(249, 249, 249); _clrRight = RGB(238, 238, 238); _clrLeftText = _clrRightText = RGB(26, 26, 26);
+        _clrHot = RGB(232, 232, 232);  _clrHotBorder = _clrHot;        _clrRightHot = RGB(225, 225, 225);
+        _clrBorder = RGB(200, 200, 200); _clrSep = RGB(222, 222, 222); _clrGray = RGB(110, 110, 110);
+        _clrSearch = RGB(255, 255, 255); _clrShut = RGB(230, 230, 230);
+    }
+    if (_brSearch)
+        DeleteObject(_brSearch);
+    _brSearch = CreateSolidBrush(_clrSearch);
+}
+
 void StartMenu7::LoadConfig()
 {
+    SetColors();
     Value cfg = JCFG2("JS_STARTMENU", "win7");
     _title = JStr(cfg, TEXT("title"));
 
@@ -462,9 +493,17 @@ void StartMenu7::Layout()
     GetWindowRect(g_Globals._hwndDesktopBar, &rcBar);
     MONITORINFO mi = { sizeof(mi) };
     GetMonitorInfo(MonitorFromRect(&rcBtn, MONITOR_DEFAULTTONEAREST), &mi);
-    hh = min(hh, (int)(rcBar.top - mi.rcMonitor.top) - DPI_SY(8));
+    int gap = _w11 ? DPI_SY(8) : 0;     // win11: the menu floats above the taskbar
+    hh = min(hh, (int)(rcBar.top - mi.rcMonitor.top) - DPI_SY(8) - gap * 2);
     int x = max((int)mi.rcMonitor.left, (int)rcBtn.left);
-    SetWindowPos(_hwnd, HWND_TOPMOST, x, rcBar.top - hh, wl + wr, hh, SWP_NOACTIVATE);
+    if (_w11) {
+        if (W11_Center())
+            x = (mi.rcMonitor.left + mi.rcMonitor.right - (wl + wr)) / 2;
+        x = max((int)mi.rcMonitor.left + gap, min(x, (int)mi.rcMonitor.right - gap - (wl + wr)));
+    }
+    SetWindowPos(_hwnd, HWND_TOPMOST, x, rcBar.top - gap - hh, wl + wr, hh, SWP_NOACTIVATE);
+    // rounded corners: a window region works without DWM (WinPE); NULL restores the rectangle
+    SetWindowRgn(_hwnd, _w11 ? CreateRoundRectRgn(0, 0, wl + wr + 1, hh + 1, DPI_SX(16), DPI_SX(16)) : NULL, TRUE);
 
     int pad = DPI_SX(6);
     _rowSmall = max(DPI_SY(26), _cxSmall + DPI_SY(8));
@@ -472,20 +511,36 @@ void StartMenu7::Layout()
     _rowSep = DPI_SY(9);
     _rowRight = DPI_SY(32);
 
-    SetRect(&_rcLeft, 0, 0, wl, hh);
-    SetRect(&_rcRight, wl, 0, wl + wr, hh);
-    int searchH = DPI_SY(26);
-    SetRect(&_rcSearch, pad * 2, hh - pad * 2 - searchH, wl - pad * 2, hh - pad * 2);
-    SetRect(&_rcFooter, pad, _rcSearch.top - pad * 2 - _rowSmall, wl - pad, _rcSearch.top - pad * 2);
-    SetRect(&_rcList, pad, pad, wl - pad, _rcFooter.top - pad);
+    if (_w11) {
+        // search across the whole menu at the top; both columns below it
+        int searchH = DPI_SY(34);
+        SetRect(&_rcSearch, pad * 3, pad * 3, wl + wr - pad * 3, pad * 3 + searchH);
+        int top = _rcSearch.bottom + pad * 2;
+        SetRect(&_rcLeft, 0, 0, wl, hh);
+        SetRect(&_rcRight, wl, top, wl + wr, hh);
+        SetRect(&_rcFooter, pad, hh - pad * 2 - _rowSmall, wl - pad, hh - pad * 2);
+        SetRect(&_rcList, pad, top, wl - pad, _rcFooter.top - pad * 2);
+    } else {
+        SetRect(&_rcLeft, 0, 0, wl, hh);
+        SetRect(&_rcRight, wl, 0, wl + wr, hh);
+        int searchH = DPI_SY(26);
+        SetRect(&_rcSearch, pad * 2, hh - pad * 2 - searchH, wl - pad * 2, hh - pad * 2);
+        SetRect(&_rcFooter, pad, _rcSearch.top - pad * 2 - _rowSmall, wl - pad, _rcSearch.top - pad * 2);
+        SetRect(&_rcList, pad, pad, wl - pad, _rcFooter.top - pad);
+    }
     int shutH = DPI_SY(30), arrowW = DPI_SX(26);
     int shutW = DPI_SX(110);
     _rcShut.left = wl + pad * 2; _rcShut.bottom = hh - pad * 2; _rcShut.top = _rcShut.bottom - shutH;
     _rcShut.right = min(_rcShut.left + shutW, (int)(_rcRight.right - pad * 2 - arrowW));
     SetRect(&_rcArrow, _rcShut.right, _rcShut.top, _rcShut.right + arrowW, _rcShut.bottom);
 
-    MoveWindow(_edit, _rcSearch.left + DPI_SX(6), _rcSearch.top + DPI_SY(4), _rcSearch.right - _rcSearch.left - DPI_SX(12),
-               _rcSearch.bottom - _rcSearch.top - DPI_SY(8), FALSE);
+    if (_w11) {
+        int eh = DPI_SY(20);
+        MoveWindow(_edit, _rcSearch.left + DPI_SX(12), (_rcSearch.top + _rcSearch.bottom - eh) / 2,
+                   _rcSearch.right - _rcSearch.left - DPI_SX(24), eh, FALSE);
+    } else
+        MoveWindow(_edit, _rcSearch.left + DPI_SX(6), _rcSearch.top + DPI_SY(4), _rcSearch.right - _rcSearch.left - DPI_SX(12),
+                   _rcSearch.bottom - _rcSearch.top - DPI_SY(8), FALSE);
 }
 
 void StartMenu7::AddTreeRows(Node &n, int depth)
@@ -605,6 +660,39 @@ static void FrameColor(HDC hdc, const RECT &rc, COLORREF c)
     DeleteObject(b);
 }
 
+// selected / hot item: a rounded highlight (win11) or the Windows 7 box with a frame
+void StartMenu7::FillItem(HDC hdc, const RECT &rc, COLORREF c, COLORREF frame)
+{
+    if (_w11) {
+        RECT r = { rc.left + DPI_SX(2), rc.top + DPI_SY(1), rc.right - DPI_SX(2), rc.bottom - DPI_SY(1) };
+        W11_FillRound(hdc, r, DPI_SX(4), c);
+        return;
+    }
+    FillColor(hdc, rc, c);
+    if (frame != CLR_INVALID)
+        FrameColor(hdc, rc, frame);
+}
+
+// search box: Windows 7 = white box with a frame at the bottom of the left column; win11 = rounded box across the
+// whole menu at the top, accent line at the bottom while it has the focus
+void StartMenu7::DrawSearch(HDC hdc)
+{
+    bool focus = GetFocus() == _edit;
+    if (!_w11) {
+        FillColor(hdc, _rcSearch, RGB(255, 255, 255));
+        FrameColor(hdc, _rcSearch, focus ? RGB(100, 160, 220) : RGB(180, 180, 180));
+        return;
+    }
+    int r = DPI_SX(4);
+    W11_FillRound(hdc, _rcSearch, r, _clrSearch);
+    RECT fr = { _rcSearch.left, _rcSearch.top, _rcSearch.right + 1, _rcSearch.bottom + 1 };
+    W11_FrameRound(hdc, fr, r, _clrBorder);
+    if (focus) {
+        RECT line = { _rcSearch.left + r, _rcSearch.bottom - DPI_SY(2), _rcSearch.right - r, _rcSearch.bottom };
+        FillColor(hdc, line, W11_Color(W11C_ACCENT));
+    }
+}
+
 void StartMenu7::DrawLeft(HDC hdc)
 {
     FillColor(hdc, _rcLeft, _clrLeft);
@@ -629,10 +717,8 @@ void StartMenu7::DrawLeft(HDC hdc)
             DrawTextW(hdc, t.c_str(), -1, &tr, DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS | DT_NOPREFIX);
             continue;
         }
-        if (i == _sel) {
-            FillColor(hdc, rc, _clrHot);
-            FrameColor(hdc, rc, _clrHotBorder);
-        }
+        if (i == _sel)
+            FillItem(hdc, rc, _clrHot, _clrHotBorder);
         int x = rc.left + DPI_SX(6) + r.depth * DPI_SX(16);
         HIMAGELIST il = large ? _ilLarge : _ilSmall;
         if (il)
@@ -661,19 +747,16 @@ void StartMenu7::DrawLeft(HDC hdc)
     // footer: All Programs / Back
     RECT sep = {_rcFooter.left + DPI_SX(4), _rcFooter.top - DPI_SY(4), _rcFooter.right - DPI_SX(4), _rcFooter.top - DPI_SY(3)};
     FillColor(hdc, sep, _clrSep);
-    if (_sel == (int)_rows.size() || _hot == H_FOOTER) {
-        FillColor(hdc, _rcFooter, _clrHot);
-        FrameColor(hdc, _rcFooter, _clrHotBorder);
-    }
+    if (_sel == (int)_rows.size() || _hot == H_FOOTER)
+        FillItem(hdc, _rcFooter, _clrHot, _clrHotBorder);
     SetBkMode(hdc, TRANSPARENT);
     SetTextColor(hdc, _clrLeftText);
     RECT fr = _rcFooter; fr.left += DPI_SX(10);
-    const wchar_t *ft = _mode == M_HOME ? L"\x25B8  All Programs" : L"\x25C2  Back";
+    const wchar_t *ft = _mode == M_HOME ? (_w11 ? L"\x25B8  All apps" : L"\x25B8  All Programs") : L"\x25C2  Back";
     DrawTextW(hdc, ft, -1, &fr, DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX);
 
-    // search box frame
-    FillColor(hdc, _rcSearch, RGB(255, 255, 255));
-    FrameColor(hdc, _rcSearch, GetFocus() == _edit ? RGB(100, 160, 220) : RGB(180, 180, 180));
+    if (!_w11)
+        DrawSearch(hdc);                // win11: drawn by Paint, across both columns
 }
 
 void StartMenu7::DrawRight(HDC hdc)
@@ -700,7 +783,7 @@ void StartMenu7::DrawRight(HDC hdc)
         }
         RECT rc = {_rcRight.left + pad, y, _rcRight.right - pad, y + _rowRight};
         if (_hot == H_RIGHT && _hotIdx == i)
-            FillColor(hdc, rc, _clrRightHot);
+            FillItem(hdc, rc, _clrRightHot, CLR_INVALID);
         SetTextColor(hdc, _clrRightText);
         RECT tr = rc; tr.left += pad;
         DrawTextW(hdc, r.text.c_str(), -1, &tr, DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS | DT_NOPREFIX);
@@ -709,14 +792,26 @@ void StartMenu7::DrawRight(HDC hdc)
 
     // Shut down + arrow
     bool noshut = JCFG2_DEF("JS_STARTMENU", "noshutdown", false).ToBool();
+    auto button = [&](const RECT &r, bool hot) {
+        COLORREF c = hot ? _clrRightHot : _clrShut;
+        if (_w11) {
+            W11_FillRound(hdc, r, DPI_SX(4), c);
+            RECT fr = { r.left, r.top, r.right + 1, r.bottom + 1 };
+            W11_FrameRound(hdc, fr, DPI_SX(4), _clrBorder);
+        } else {
+            FillColor(hdc, r, c);
+            FrameColor(hdc, r, _clrBorder);
+        }
+    };
     if (!noshut) {
-        FillColor(hdc, _rcShut, _hot == H_SHUT ? _clrRightHot : RGB(48, 54, 70));
-        FrameColor(hdc, _rcShut, _clrBorder);
+        // win11: the two buttons are separate rounded boxes
+        RECT rs = _rcShut;
+        if (_w11) rs.right -= DPI_SX(2);
+        button(rs, _hot == H_SHUT);
         SetTextColor(hdc, _clrRightText);
-        DrawTextW(hdc, L"Shut down", -1, &_rcShut, DT_SINGLELINE | DT_VCENTER | DT_CENTER | DT_NOPREFIX);
+        DrawTextW(hdc, L"Shut down", -1, &rs, DT_SINGLELINE | DT_VCENTER | DT_CENTER | DT_NOPREFIX);
     }
-    FillColor(hdc, _rcArrow, _hot == H_ARROW ? _clrRightHot : RGB(48, 54, 70));
-    FrameColor(hdc, _rcArrow, _clrBorder);
+    button(_rcArrow, _hot == H_ARROW);
     SetTextColor(hdc, _clrRightText);
     DrawTextW(hdc, L"\x25B8", -1, &_rcArrow, DT_SINGLELINE | DT_VCENTER | DT_CENTER);
 }
@@ -729,9 +824,16 @@ void StartMenu7::Paint(HDC hdc)
     HBITMAP bmp = CreateCompatibleBitmap(hdc, rc.right, rc.bottom);
     HGDIOBJ oldBmp = SelectObject(mem, bmp);
     HGDIOBJ oldFont = SelectObject(mem, _font);
+    if (_w11)
+        FillColor(mem, rc, _clrLeft);   // the band above the right column (search row)
     DrawLeft(mem);
     DrawRight(mem);
-    FrameColor(mem, rc, _clrBorder);
+    if (_w11) {
+        DrawSearch(mem);
+        // with the rounded region the 1 px rectangle frame would be cut at the corners
+        W11_FrameRound(mem, rc, DPI_SX(8), _clrBorder);
+    } else
+        FrameColor(mem, rc, _clrBorder);
     BitBlt(hdc, 0, 0, rc.right, rc.bottom, mem, 0, 0, SRCCOPY);
     SelectObject(mem, oldFont);
     SelectObject(mem, oldBmp);
@@ -998,6 +1100,14 @@ LRESULT StartMenu7::Proc(UINT msg, WPARAM wp, LPARAM lp)
             OnSearchChanged();
         return 0;
 
+    case WM_CTLCOLOREDIT:               // win11: the search box in the theme colors (dark: light text on dark)
+        if (_w11 && _brSearch) {
+            SetTextColor((HDC)wp, _clrLeftText);
+            SetBkColor((HDC)wp, _clrSearch);
+            return (LRESULT)_brSearch;
+        }
+        break;
+
     case WM_MOUSEMOVE: {
         if (!_tracking) {
             TRACKMOUSEEVENT tme = { sizeof(tme), TME_LEAVE, _hwnd, 0 };
@@ -1051,7 +1161,8 @@ LRESULT StartMenu7::Proc(UINT msg, WPARAM wp, LPARAM lp)
 
 bool StartMenu7_Enabled()
 {
-    return JCFG2_DEF("JS_STARTMENU", "style", TEXT("classic")).ToString(std::wstring(L"classic")).compare(L"win7") == 0;
+    std::wstring style = JCFG2_DEF("JS_STARTMENU", "style", TEXT("classic")).ToString(std::wstring(L"classic"));
+    return style == L"win7" || style == L"win11";
 }
 
 void StartMenu7_Toggle(HWND hwndStartButton) { StartMenu7::Get().Toggle(hwndStartButton); }

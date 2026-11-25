@@ -33,6 +33,7 @@
 #include "../resource.h"
 
 #include "traynotify.h"
+#include "win11style.h"
 
 #ifdef USE_NOTIFYHOOK
 #include "../notifyhook/notifyhook.h"
@@ -1340,7 +1341,7 @@ HWND ClockWindow::Create(HWND hwndParent)
     ClientRect clnt(hwndParent);
 
     WindowCanvas canvas(hwndParent);
-    FontSelection font(canvas, GetStockFont(DEFAULT_GUI_FONT));
+    FontSelection font(canvas, W11_Enabled() ? W11_Font() : GetStockFont(DEFAULT_GUI_FONT));
 
     RECT rect = {0, 0, 0, 0};
     TCHAR buffer[32];
@@ -1355,7 +1356,7 @@ HWND ClockWindow::Create(HWND hwndParent)
 
     // Calculate the rectangle needed to draw the time (without actually drawing it)
     DrawText(canvas, buffer, -1, &rect, DT_NOPREFIX | DT_CALCRECT);
-    int clockwindowWidth = rect.right - rect.left + 20;
+    int clockwindowWidth = rect.right - rect.left + (W11_Enabled() ? DPI_SX(24) : 20);
 
     return Window::Create(WINDOW_CREATOR(ClockWindow), 0,
                           wcClock, NULL, WS_CHILD | WS_VISIBLE,
@@ -1439,6 +1440,16 @@ void ClockWindow::Paint()
     FillRect(canvas, &canvas.rcPaint, TASKBAR_BRUSH());
 
     BkMode bkmode(canvas, TRANSPARENT);
+    if (W11_Enabled()) {        // Segoe UI, time over date, right aligned (as on Windows 11)
+        FontSelection font(canvas, W11_Font());
+        SetTextColor(canvas, CLOCK_TEXT_COLOR());
+        ClientRect client(_hwnd);
+        RECT calc = { 0, 0, client.right, 0 };
+        DrawText(canvas, _time, -1, &calc, DT_RIGHT | DT_NOPREFIX | DT_CALCRECT);
+        RECT r = { 0, (client.bottom - calc.bottom) / 2, client.right - DPI_SX(10), client.bottom };
+        DrawText(canvas, _time, -1, &r, DT_RIGHT | DT_NOPREFIX);
+        return;
+    }
     FontSelection font(canvas, GetStockFont(DEFAULT_GUI_FONT));
     SetTextColor(canvas, CLOCK_TEXT_COLOR());
     if (!inited) {

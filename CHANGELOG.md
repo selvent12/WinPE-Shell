@@ -20,6 +20,13 @@ Base: PExplorer branch `WinXShell_shellpart` @ `5f8b886` (2018-08-19).
   programs, All Programs tree, search (Enter without a match runs the text), configurable right column, Shut down +
   Restart menu; `JS_STARTMENU.extra_folders` adds programs found at run time (any drive, background scan). The
   classic menu stays the default.
+- **09** Windows 11 look (`JS_TASKBAR.style = "win11"`, `taskbar/win11style.cpp`): icon-only task buttons with
+  rounded hover/active backgrounds and a running indicator (accent pill for the active window, gray dot for the
+  others), Windows logo Start button, 1 px top border, Segoe UI clock (time over date, right aligned), quick launch
+  icons scaled and centered; `JS_TASKBAR.align = "left"` (default) or `"center"` (Start + task buttons centered as
+  one group). `JS_STARTMENU.style = "win11"`: the two-column menu with the search box on top, rounded corners and
+  highlights, theme colors, floating above the taskbar (centered on the screen with `align: center`). The classic
+  look stays the default.
 - Repository layout: shell sources moved to `src/`.
 
 ### UI utility (`ui/`, new)

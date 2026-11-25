@@ -133,4 +133,7 @@ struct StartButton : public PictureButton {
 
 protected:
     LRESULT WndProc(UINT nmsg, WPARAM wparam, LPARAM lparam);
+    virtual void DrawItem(LPDRAWITEMSTRUCT dis);   // win11 style: Windows logo, rounded hover background
+
+    bool    _hot = false;
 };
