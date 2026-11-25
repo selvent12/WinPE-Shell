@@ -8,6 +8,7 @@
  *   MyPEUI.exe open <feature> [args]    display [/select N] | network | sysinfo
  *   MyPEUI.exe net on|off|toggle|status [/quiet] [/boot]   network control (net.c, spec 14)
  *   MyPEUI.exe tray-net                 network tray icon (net.c)
+ *   MyPEUI.exe scale <percent> [/norestart]   live display scale on every display (scale.c), shell restart if needed
  *
  * Shutdown dialog: semi-opaque full-screen overlay on every monitor, two round buttons on the primary one.
  *   Restart -> wpeutil Reboot, Power -> wpeutil Shutdown. Esc, click outside the buttons or a display change = cancel.
@@ -22,6 +23,7 @@
  * Log: X:\MyPE\logs\mypeui.log
  */
 #include "mypeui.h"
+#include "scale.h"
 #include <shellapi.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -563,6 +565,28 @@ static int ShutdownDialog(BOOL focusRestart)
 }
 
 /* ======================================================================================================== */
+/* "scale <percent> [/norestart]": live display scale (scale.c). Used at start by Set-DisplayLayout.ps1 with the scale of
+   the configuration file. If a display changed and the shell is already running, the shell is restarted so that the
+   taskbar is drawn at the new DPI (a process started after the change gets the new system DPI). */
+static int ScaleCommand(int argc, wchar_t **argv)
+{
+    int pct = argc > 2 ? _wtoi(argv[2]) : 0, cur = 0, max = 0, i;
+    BOOL norestart = FALSE, changed = FALSE, ok;
+    HWND desk;
+    for (i = 3; i < argc; i++) if (!_wcsicmp(argv[i], L"/norestart")) norestart = TRUE;
+    if (!Scale_Query(&cur, &max)) { Log(L"scale: no display information"); return 1; }
+    Log(L"scale: current %d%%, displays accept up to %d%%", cur, max);
+    if (pct <= 0) return 0;
+    pct = Scale_Nearest(pct);
+    ok = Scale_SetAll(pct, &changed);
+    desk = FindWindowW(L"Progman", NULL);
+    if (changed && !norestart && desk) {
+        Log(L"scale: restarting the shell for the new scale");
+        Sleep(500);
+        PostMessageW(desk, MYPE_PM_RESTART_SHELL, 0, 0);
+    }
+    return ok ? 0 : 1;
+}
 
 int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE hPrev, LPWSTR cmdLine, int nShow)
 {
@@ -587,6 +611,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE hPrev, LPWSTR cmdLine, int nShow)
     else if (!_wcsicmp(cmd, L"open")) rc = OpenFeature(argc > 2 ? argv[2] : L"", NULL);
     else if (!_wcsicmp(cmd, L"net")) rc = NetCommand(argc, argv);
     else if (!_wcsicmp(cmd, L"tray-net")) rc = NetTray();
+    else if (!_wcsicmp(cmd, L"scale")) rc = ScaleCommand(argc, argv);
     else if (!_wcsnicmp(cmd, L"ms-settings:", 12) || !_wcsnicmp(cmd, L"ms-availablenetworks:", 21)) rc = HandleUri(cmd);
     else { Log(L"unknown command '%s'", cmd); Message(L"MyPEUI: unknown command '%s'.", cmd); rc = 2; }
     LocalFree(argv);

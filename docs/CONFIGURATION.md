@@ -29,8 +29,28 @@ list with comments). Commonly used:
   process (a launcher/watchdog must restart it). URI commands (`ms-settings:...`) are started with the protocol class.
 - `JS_STARTMENU.commands.reboot` / `shutdown`: what Restart / Turn Off run.
 
+### Taskbar look: `JS_TASKBAR.style`, `JS_TASKBAR.align`
+
+```json
+"JS_TASKBAR": { "theme": "dark", "style": "win11", "align": "left", "height": 48, "smallicon": 32,
+                "bkcolor": [32, 32, 32] }
+```
+
+- `style`: `"classic"` (default, the upstream look) or `"win11"`: icon-only task buttons (the window title is the
+  tooltip) with rounded hover / pressed / active backgrounds, a running indicator under each icon (accent pill for
+  the active window, gray dot for the others), the Windows logo on the Start button, a 1 px top border and a Segoe UI
+  clock (time over date, right aligned). Highlight shades are derived from `bkcolor`; `theme: "light"` uses dark
+  shades and the light accent.
+- `align` (win11 only): `"left"` (default) or `"center"` (Start, quick launch and task buttons centered as one group;
+  the notification area stays at the right).
+- `smallicon` as a number = icon size of the task and quick launch buttons (96 DPI). The style is read once at start:
+  a change needs a shell restart.
+
 ### Start menu style: `JS_STARTMENU.style`
-`"classic"` (default) = the cascading menu; `"win7"` = a two-column menu:
+`"classic"` (default) = the cascading menu; `"win7"` = a two-column menu; `"win11"` = the same two-column menu with
+the Windows 11 look (search box on top across both columns, rounded corners and highlights, colors of
+`JS_TASKBAR.theme`, 8 px above the taskbar, centered on the screen when `JS_TASKBAR.align` is `"center"`; the keys of
+`win7` below apply to it too):
 
 | Home | All Programs | Search | Shut down menu |
 |---|---|---|---|

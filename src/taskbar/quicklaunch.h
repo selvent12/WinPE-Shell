@@ -32,6 +32,7 @@
 #define IDW_QUICKLAUNCHBAR  101
 
 #define PM_UPDATE_DESKTOP   (WM_APP+0x23)
+#define PM_QL_CUSTOMDRAW    (WM_APP+0x72)   // win11 style: NM_CUSTOMDRAW forwarded by the desktop bar (lparam = NMTBCUSTOMDRAW*)
 
 #define IDC_FIRST_QUICK_ID  0x4000
 
@@ -79,4 +80,5 @@ protected:
     void    ReloadShortcuts();
     void    AddButton(int id, HBITMAP hbmp, LPCTSTR name, Entry *entry, int flags = TBSTATE_ENABLED);
     void    UpdateDesktopButtons(int desktop_idx);
+    int     DrawW11Button(LPNMTBCUSTOMDRAW cd);
 };

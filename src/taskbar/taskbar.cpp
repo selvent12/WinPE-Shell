@@ -30,6 +30,7 @@
 #include <WinUser.h>
 #include "taskbar.h"
 #include "traynotify.h" // for NOTIFYAREA_WIDTH_DEF
+#include "win11style.h"
 
 
 DynamicFct<BOOL (WINAPI *)(HWND hwnd)> g_SetTaskmanWindow(TEXT("user32"), "SetTaskmanWindow");
@@ -55,6 +56,7 @@ TaskBarEntry::TaskBarEntry()
 {
     _id = 0;
     _hbmp = 0;
+    _hicon = 0;
     _bmp_idx = 0;
     _used = 0;
     _btn_idx = 0;
@@ -66,6 +68,8 @@ TaskBarMap::~TaskBarMap()
     while (!empty()) {
         iterator it = begin();
         DeleteBitmap(it->second._hbmp);
+        if (it->second._hicon)
+            DestroyIcon(it->second._hicon);
         erase(it);
     }
 }
@@ -76,6 +80,7 @@ TaskBar::TaskBar(HWND hwnd)
        WM_SHELLHOOK(RegisterWindowMessage(WINMSG_SHELLHOOK))
 {
     _last_btn_width = 0;
+    _last_btn_count = 0;
 
     _mmMetrics_org.cbSize = sizeof(MINIMIZEDMETRICS);
 
@@ -149,10 +154,17 @@ LRESULT TaskBar::Init(LPCREATESTRUCT pcs)
     metrics.dwMask = TBMF_BARPAD | TBMF_BUTTONSPACING;
     metrics.cxBarPad = 0;
     metrics.cyBarPad = JCFG_TB(2, "padding-top").ToInt();
-    metrics.cxButtonSpacing = 3;
+    metrics.cxButtonSpacing = W11_Enabled() ? 0 : 3;
     metrics.cyButtonSpacing = 0;
 
     SendMessage(_htoolbar, TB_SETMETRICS, 0, (LPARAM)&metrics);
+
+    if (W11_Enabled()) {
+        // icon-only buttons: the window title is not drawn, the toolbar shows it as the tooltip
+        SendMessage(_htoolbar, TB_SETEXTENDEDSTYLE, 0, TBSTYLE_EX_MIXEDBUTTONS);
+        _last_btn_width = W11_TaskButtonWidth();
+        W11_SetButtonMetrics(_last_btn_width, pcs->cy);
+    }
 
     _next_id = IDC_FIRST_APP;
 
@@ -192,6 +204,8 @@ LRESULT TaskBar::WndProc(UINT nmsg, WPARAM wparam, LPARAM lparam)
 {
     switch (nmsg) {
     case WM_SIZE:
+        if (W11_Enabled() && HIWORD(lparam))
+            W11_SetButtonMetrics(_last_btn_width ? _last_btn_width : W11_TaskButtonWidth(), HIWORD(lparam));
         SendMessage(_htoolbar, WM_SIZE, 0, 0);
         ResizeButtons();
         break;
@@ -199,6 +213,9 @@ LRESULT TaskBar::WndProc(UINT nmsg, WPARAM wparam, LPARAM lparam)
     case WM_TIMER:
         Refresh();
         return 0;
+
+    case PM_GET_WIDTH:          // win11 + align center: the desktop bar sizes this window to the buttons
+        return W11_WidthFor((int)SendMessage(_htoolbar, TB_BUTTONCOUNT, 0, 0));
 
     case WM_CONTEXTMENU: {
         Point pt(lparam);
@@ -290,6 +307,8 @@ int TaskBar::Notify(int id, NMHDR *pnmh)
             case CDDS_PREPAINT:
                 return CDRF_NOTIFYITEMDRAW;
             case CDDS_ITEMPREPAINT: {
+                if (W11_Enabled())
+                    return DrawW11Button(lptbcd);
                 lptbcd->clrText = TASKBAR_TEXTCOLOR();
 #define CDRF_USECDCOLORS 0x00800000
                 return CDRF_USECDCOLORS; //Windows vista later
@@ -485,8 +504,11 @@ BOOL CALLBACK TaskBar::EnumWndProc(HWND hwnd, LPARAM lparam)
                 delete_icon = TRUE;
             }
 
+            HICON hIconCopy = 0;
             if (hIcon) {
                 hbmp = create_bitmap_from_icon(hIcon, TASKBAR_BRUSH(), WindowCanvas(pThis->_htoolbar), TASKBAR_ICON_SIZE);
+                if (W11_Enabled())  // the bitmap has the bar color baked in: keep the icon to draw it transparently
+                    hIconCopy = (HICON)CopyImage(hIcon, IMAGE_ICON, TASKBAR_ICON_SIZE, TASKBAR_ICON_SIZE, 0);
                 if (delete_icon)
                     DestroyIcon(hIcon); // some icons can be freed, some not - so ignore any error return of DestroyIcon()
             } else
@@ -499,6 +521,7 @@ BOOL CALLBACK TaskBar::EnumWndProc(HWND hwnd, LPARAM lparam)
 
             entry._id = pThis->_next_id++;
             entry._hbmp = hbmp;
+            entry._hicon = hIconCopy;
             entry._bmp_idx = bmp_idx;
             entry._title = title;
 
@@ -632,12 +655,24 @@ void TaskBar::Refresh()
 
             for (TaskBarMap::iterator it = _map.begin(); it != _map.end(); ++it)
                 if (it->second._hbmp == hbmp) {
+                    if (it->second._hicon)
+                        DestroyIcon(it->second._hicon);
                     _map.erase(it);
                     break;
                 }
         }
 
         ResizeButtons();
+    }
+
+    if (W11_Enabled()) {
+        int count = (int)SendMessage(_htoolbar, TB_BUTTONCOUNT, 0, 0);
+        if (count != _last_btn_count) {
+            _last_btn_count = count;
+            if (W11_Center())   // the centered group (Start + buttons) changes its width
+                PostMessage(GetParent(_hwnd), PM_RESIZE_CHILDREN, 0, 0);
+        }
+        InvalidateRect(_htoolbar, NULL, FALSE); // the active window indicator follows the foreground window
     }
 }
 
@@ -650,8 +685,79 @@ TaskBarMap::iterator TaskBarMap::find_id(int id)
     return end();
 }
 
+int TaskBar::W11_WidthFor(int buttons)
+{
+    return buttons * W11_TaskButtonWidth();
+}
+
+// button size = image + padding (TB_SETBUTTONSIZE alone is overridden by the toolbar's own calculation): the padding
+// makes the buttons as high as the bar, so the rounded background and the indicator use the whole height
+void TaskBar::W11_SetButtonMetrics(int width, int height)
+{
+    int ics = TASKBAR_ICON_SIZE;
+    height = max(height, ics);
+    SendMessage(_htoolbar, TB_SETPADDING, 0, MAKELPARAM(max(0, width - ics), max(0, height - ics)));
+    SendMessage(_htoolbar, TB_SETBUTTONWIDTH, 0, MAKELONG(width, width));
+    SendMessage(_htoolbar, TB_SETBUTTONSIZE, 0, MAKELONG(width, height));
+    SendMessage(_htoolbar, TB_AUTOSIZE, 0, 0);
+}
+
+// win11 style: square-ish icon buttons, rounded background (hover / pressed / active window) and a small pill under
+// the icon: long and in the accent color for the active window, short and gray for the others
+int TaskBar::DrawW11Button(LPNMTBCUSTOMDRAW cd)
+{
+    HDC hdc = cd->nmcd.hdc;
+    RECT rc = cd->nmcd.rc;
+    UINT st = cd->nmcd.uItemState;
+    FillRect(hdc, &rc, TASKBAR_BRUSH());
+
+    TaskBarMap::iterator it = _map.find_id((int)cd->nmcd.dwItemSpec);
+    bool active = (st & CDIS_CHECKED) || (it != _map.end() && (it->second._fsState & TBSTATE_CHECKED));
+
+    RECT bg = { rc.left + DPI_SX(2), rc.top + DPI_SY(4), rc.right - DPI_SX(2), rc.bottom - DPI_SY(4) };
+    int radius = DPI_SX(4);
+    if (st & CDIS_SELECTED)
+        W11_FillRound(hdc, bg, radius, W11_Color(W11C_PRESSED));
+    else if (st & CDIS_HOT)
+        W11_FillRound(hdc, bg, radius, W11_Color(W11C_HOVER));
+    else if (active)
+        W11_FillRound(hdc, bg, radius, W11_Color(W11C_ACTIVE));
+
+    int ics = TASKBAR_ICON_SIZE;
+    int x = (rc.left + rc.right - ics) / 2, y = (rc.top + rc.bottom - ics) / 2 - DPI_SY(1);
+    HICON hicon = (it != _map.end()) ? it->second._hicon : 0;
+    if (hicon)
+        DrawIconEx(hdc, x, y, hicon, ics, ics, 0, NULL, DI_NORMAL);
+    else if (it != _map.end() && it->second._hbmp) {
+        MemCanvas mem;
+        BitmapSelection sel(mem, it->second._hbmp);
+        BitBlt(hdc, x, y, ics, ics, mem, 0, 0, SRCCOPY);
+    }
+
+    int pw = active ? DPI_SX(16) : DPI_SX(6), ph = max(2, DPI_SY(3));
+    int cx = (rc.left + rc.right) / 2;
+    RECT pill = { cx - pw / 2, bg.bottom - ph - DPI_SY(1), cx - pw / 2 + pw, bg.bottom - DPI_SY(1) };
+    W11_FillRound(hdc, pill, ph / 2, W11_Color(active ? W11C_ACCENT : W11C_INDICATOR));
+
+    return CDRF_SKIPDEFAULT;
+}
+
 void TaskBar::ResizeButtons()
 {
+    if (W11_Enabled()) {
+        int btns = (int)SendMessage(_htoolbar, TB_BUTTONCOUNT, 0, 0);
+        int w = W11_TaskButtonWidth();
+        if (btns > 0) {
+            int bar_width = ClientRect(_hwnd).right;
+            w = min(w, max((int)TASKBUTTONWIDTH_MIN, bar_width / btns));   // many windows: buttons get narrower
+        }
+        if (w != _last_btn_width) {
+            _last_btn_width = w;
+            W11_SetButtonMetrics(w, ClientRect(_hwnd).bottom);
+        }
+        return;
+    }
+
     int btns = (int)_map.size();
 
     if (btns > 0) {

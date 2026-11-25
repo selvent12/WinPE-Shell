@@ -306,6 +306,7 @@
     <ClCompile Include="taskbar\quicklaunch.cpp" />
     <ClCompile Include="taskbar\startmenu.cpp" />
     <ClCompile Include="taskbar\startmenu7.cpp" />
+    <ClCompile Include="taskbar\win11style.cpp" />
     <ClCompile Include="taskbar\taskbar.cpp" />
     <ClCompile Include="taskbar\traynotify.cpp" />
     <ClCompile Include="desktop\desktop.cpp" />
@@ -350,6 +351,7 @@
     <ClInclude Include="taskbar\quicklaunch.h" />
     <ClInclude Include="taskbar\startmenu.h" />
     <ClInclude Include="taskbar\startmenu7.h" />
+    <ClInclude Include="taskbar\win11style.h" />
     <ClInclude Include="taskbar\taskbar.h" />
     <ClInclude Include="taskbar\traynotify.h" />
     <ClInclude Include="desktop\desktop.h" />

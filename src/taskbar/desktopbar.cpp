@@ -36,6 +36,7 @@
 #include "startmenu7.h"
 #include "traynotify.h"
 #include "quicklaunch.h"
+#include "win11style.h"
 
 #include "../dialogs/settings.h"
 
@@ -128,6 +129,8 @@ LRESULT DesktopBar::Init(LPCREATESTRUCT pcs)
     if (isEmptyStartIcon) {
         start_btn_padding = JCFG2_DEF("JS_STARTMENU", "start_padding", 0).ToInt();
     }
+    if (W11_Enabled() && !isEmptyStartIcon)
+        start_btn_width = W11_StartButtonWidth();
     _taskbar_pos = start_btn_width + DPI_SX(start_btn_padding) + 1;
     // create "Start" button
     static WNDCLASS wc;
@@ -238,6 +241,27 @@ StartButton::StartButton(HWND hwnd, UINT nid, COLORREF textcolor, bool flat)
 {
 }
 
+void StartButton::DrawItem(LPDRAWITEMSTRUCT dis)
+{
+    if (!W11_Enabled()) {
+        super::DrawItem(dis);
+        return;
+    }
+    HDC hdc = dis->hDC;
+    RECT rc = dis->rcItem;
+    FillRect(hdc, &rc, TASKBAR_BRUSH());
+    RECT bg = { rc.left + DPI_SX(2), rc.top + DPI_SY(4), rc.right - DPI_SX(2), rc.bottom - DPI_SY(4) };
+    if (dis->itemState & ODS_SELECTED)
+        W11_FillRound(hdc, bg, DPI_SX(4), W11_Color(W11C_PRESSED));
+    else if (_hot)
+        W11_FillRound(hdc, bg, DPI_SX(4), W11_Color(W11C_HOVER));
+    int logo = max((int)DPI_SX(14), (int)TASKBAR_ICON_SIZE - DPI_SX(4));
+    RECT lr = rc;
+    if (dis->itemState & ODS_SELECTED)
+        OffsetRect(&lr, 0, DPI_SY(1));
+    W11_DrawStartLogo(hdc, lr, logo, W11_Color(W11C_ACCENT));
+}
+
 extern int VK_WIN_HOOK();
 
 LRESULT StartButton::WndProc(UINT nmsg, WPARAM wparam, LPARAM lparam)
@@ -255,8 +279,20 @@ LRESULT StartButton::WndProc(UINT nmsg, WPARAM wparam, LPARAM lparam)
         Button_SetState(_hwnd, FALSE);
         break;
 
+    case WM_MOUSELEAVE:
+        _hot = false;
+        InvalidateRect(_hwnd, NULL, FALSE);
+        break;
+
     // re-target mouse move messages while moving the mouse cursor through the start menu
     case WM_MOUSEMOVE:
+        if (W11_Enabled() && !_hot) {
+            TRACKMOUSEEVENT tme = { sizeof(tme), TME_LEAVE, _hwnd, 0 };
+            if (TrackMouseEvent(&tme)) {
+                _hot = true;
+                InvalidateRect(_hwnd, NULL, FALSE);
+            }
+        }
         if (GetCapture() == _hwnd) {
             POINT pt = {GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam)};
 
@@ -417,6 +453,19 @@ LRESULT DesktopBar::WndProc(UINT nmsg, WPARAM wparam, LPARAM lparam)
 {
     //if (nmsg != WM_TIMER) LOG(FmtString(TEXT("NMSG - %d"), nmsg));
     switch (nmsg) {
+    case WM_PAINT:
+        if (W11_Enabled()) {    // bar color + a 1 px top border (the children start at y = 1)
+            PaintCanvas canvas(_hwnd);
+            FillRect(canvas, &canvas.rcPaint, TASKBAR_BRUSH());
+            ClientRect rc(_hwnd);
+            RECT line = { 0, 0, rc.right, 1 };
+            HBRUSH br = CreateSolidBrush(W11_Color(W11C_BORDER));
+            FillRect(canvas, &line, br);
+            DeleteObject(br);
+            break;
+        }
+        goto def;
+
     case WM_NCHITTEST: {
 #ifndef TASKBAR_AT_TOP
         POINTS pts = MAKEPOINTS(lparam);
@@ -536,6 +585,10 @@ default: def:
 
 int DesktopBar::Notify(int id, NMHDR *pnmh)
 {
+    // win11 style: the quick launch toolbar draws its buttons itself (icons from the large system image list)
+    if (W11_Enabled() && pnmh->code == NM_CUSTOMDRAW && _hwndQuickLaunch && pnmh->hwndFrom == _hwndQuickLaunch)
+        return (int)SendMessage(_hwndQuickLaunch, PM_QL_CUSTOMDRAW, 0, (LPARAM)pnmh);
+
     if (pnmh->code == RBN_CHILDSIZE) {
         /* align the task bands to the top, so it's in row with the Start button */
         NMREBARCHILDSIZE *childSize = (NMREBARCHILDSIZE *)pnmh;
@@ -575,9 +628,31 @@ void DesktopBar::Resize(int cx, int cy)
     int quicklaunch_width = (int)SendMessage(_hwndQuickLaunch, PM_GET_WIDTH, 0, 0);
     int notifyarea_width = (int)SendMessage(_hwndNotify, PM_GET_WIDTH, 0, 0);
     //_log_(FmtString("Resize - %d,%d\r\n", cx, cy));
-    HDWP hdwp = BeginDeferWindowPos(3);
+    HDWP hdwp = BeginDeferWindowPos(4);
 
-    if (_hwndrebar)
+    if (W11_Enabled() && !_hwndrebar) {
+        // [Start][quick launch][task buttons] as one group: at the left edge, or centered on the bar (align center);
+        // the notification area stays at the right edge
+        int start_w = _taskbar_pos - 1;
+        int right = cx - (notifyarea_width + 3);
+        int left = DPI_SX(4), tasks_w;
+        if (W11_Center()) {
+            tasks_w = (int)SendMessage(_hwndTaskBar, PM_GET_WIDTH, 0, 0);
+            int group = start_w + quicklaunch_width + tasks_w;
+            left = (cx - group) / 2;
+            if (left + group > right)
+                left = right - group;
+            left = max((int)DPI_SX(4), left);
+            tasks_w = min(tasks_w, right - left - start_w - quicklaunch_width);
+        } else
+            tasks_w = right - left - start_w - quicklaunch_width;
+        tasks_w = max(0, tasks_w);
+        DeferWindowPos(hdwp, _hwndStartButton, 0, left, 1, start_w, cy - 2, SWP_NOZORDER | SWP_NOACTIVATE);
+        if (_hwndQuickLaunch)
+            DeferWindowPos(hdwp, _hwndQuickLaunch, 0, left + start_w, 1, quicklaunch_width, cy - 2, SWP_NOZORDER | SWP_NOACTIVATE);
+        if (_hwndTaskBar)
+            DeferWindowPos(hdwp, _hwndTaskBar, 0, left + start_w + quicklaunch_width, 1, tasks_w, cy - 2, SWP_NOZORDER | SWP_NOACTIVATE);
+    } else if (_hwndrebar)
         DeferWindowPos(hdwp, _hwndrebar, 0, _taskbar_pos, 1, cx - _taskbar_pos - (notifyarea_width + 1), cy - 2, SWP_NOZORDER | SWP_NOACTIVATE);
     else {
         if (_hwndQuickLaunch)

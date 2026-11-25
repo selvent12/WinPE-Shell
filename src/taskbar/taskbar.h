@@ -52,6 +52,7 @@ struct TaskBarEntry {
 
     int     _id;    // ID for WM_COMMAND
     HBITMAP _hbmp;
+    HICON   _hicon; // win11 style: own copy of the window icon (drawn over the rounded button background)
     int     _bmp_idx;
     int     _used;
     int     _btn_idx;
@@ -82,6 +83,7 @@ protected:
     int         _next_id;
     WindowHandle _last_foreground_wnd;
     int         _last_btn_width;
+    int         _last_btn_count;
     MINIMIZEDMETRICS _mmMetrics_org;
 
     const UINT WM_SHELLHOOK;
@@ -98,4 +100,9 @@ protected:
 
     void    Refresh();
     void    ResizeButtons();
+    int     DrawW11Button(LPNMTBCUSTOMDRAW cd);
+    void    W11_SetButtonMetrics(int width, int height);
+
+public:
+    static int W11_WidthFor(int buttons);     // width the task buttons need (win11 style)
 };
