@@ -50,7 +50,7 @@
 //#include "dialogs/settings.h"    // for MdiSdiDlg
 
 #include "services/shellservices.h"
-#include "jconfig/jcfg.h"
+#include "jconfig/jcfg.h"       // desktop/desktop.h (MYPE_EXIT_RESTART_REQUESTED) comes with precomp.h
 
 DynamicLoadLibFct<void(__stdcall *)(BOOL)> g_SHDOCVW_ShellDDEInit(TEXT("SHDOCVW"), 118);
 
@@ -1249,6 +1249,11 @@ int WINAPI _tWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPTSTR lpCmdL
         if (g_SHDOCVW_ShellDDEInit)
             (*g_SHDOCVW_ShellDDEInit)(FALSE);
     }
+
+    // MyPE "Restart shell" (desktop menu, Start menu, live scale change): a dedicated exit code, so the launcher's
+    // watchdog does not count it as a crash (the normal exit returned 1 here; the 8 s guard uses 0x7F05)
+    if (g_mype_restart_requested)
+        ret = MYPE_EXIT_RESTART_REQUESTED;
 
     return ret;
 }

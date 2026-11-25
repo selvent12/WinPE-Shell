@@ -17,10 +17,17 @@
 #include "win11style.h"
 #include "../jconfig/jcfg.h"
 
+// case-insensitive: a hand-edited "Win11" / "Center" must not silently give the classic look
 static bool CfgIs(const TCHAR *key, const TCHAR *value, const TCHAR *def)
 {
-    return JCfg_GetValue(&g_JCfg, TEXT("JS_TASKBAR"), key, Value(def)).ToString(std::wstring(def)).compare(value) == 0;
+    return _wcsicmp(JCfg_GetValue(&g_JCfg, TEXT("JS_TASKBAR"), key, Value(def)).ToString(std::wstring(def)).c_str(), value) == 0;
 }
+
+// Feature marker for image builders: the exe is searched for this UTF-16 string to know that it supports the
+// win11 taskbar / Start menu style and align (instead of searching for any "win11" text). Referenced through a
+// volatile pointer so the linker keeps it.
+static const wchar_t s_featureMarker[] = L"WINPESHELL_FEATURES=taskbar-win11;taskbar-align;startmenu-win11";
+const wchar_t *volatile g_W11FeatureMarker = s_featureMarker;
 
 bool W11_Enabled()
 {

@@ -72,12 +72,15 @@ static struct {
     volatile LONG nbri;         /* -1 = probing */
     int briOf[DC_MAXMON];       /* monitor -> brightness target, -1 none */
     HANDLE briThread, briEvent;
-    volatile LONG briWant, briWantTarget, briQuit, briReprobe;
+    volatile LONG briWant, briWantTarget, briWantGen, briQuit, briReprobe;
+    LONG briGenUI;              /* probe generation the UI copy (bri/briPct/nbri) belongs to */
     BOOL briShown;
     BOOL selectRotation;
 } g;
 
-static int s_scaleMax = 200;   /* largest scale an active display accepts (scale.c), filled at start */
+static int s_scaleMax = 200;   /* largest scale every active display accepts (scale.c), filled at start */
+static void ReapplyScale(BOOL *restart, const wchar_t *why);
+static void RestartShell(void);
 
 static int S(double v) { return (int)(v * g.s + 0.5); }
 static HWND Ctl(int id) { return GetDlgItem(g.hwnd, id); }
@@ -191,9 +194,12 @@ static const wchar_t *JClose(const wchar_t *q, wchar_t open, wchar_t close)
 
 typedef struct { wchar_t id[32]; long w, h; } CfgMon;
 
+/* dpiMode name for display.json (builder registry default): uniform<percent>, also above 200 % */
 static const wchar_t *ModeFromDpi(DWORD dpi)
 {
-    return dpi >= 192 ? L"uniform200" : dpi >= 168 ? L"uniform175" : dpi >= 144 ? L"uniform150" : dpi >= 120 ? L"uniform125" : L"uniform100";
+    static wchar_t s[24];
+    _snwprintf_s(s, _countof(s), _TRUNCATE, L"uniform%lu", (unsigned long)Scale_Nearest((int)(dpi * 100 / 96)));
+    return s;
 }
 
 static void JEsc(const wchar_t *in, wchar_t *out, size_t cch)
@@ -296,32 +302,62 @@ static void SaveDefault(void)
 /* brightness worker                                                                                 */
 /* ------------------------------------------------------------------------------------------------ */
 
+/* The worker owns its own target list (s_wbri: handles, slow calls). The UI thread only gets a copy of the
+   descriptive fields through s_briSnap (under s_briCs) in WM_APP_BRI, tagged with a generation number; slider
+   requests carry the generation they were made for, so a request from before a re-probe is dropped instead of being
+   applied to a different target. */
+static BriTarget s_wbri[BRI_MAX];
+static int s_wn;
+static CRITICAL_SECTION s_briCs;
+static BriTarget s_briSnap[BRI_MAX];
+static int s_briSnapPct[BRI_MAX], s_briSnapN = -1;
+static LONG s_briSnapGen;
+
 static DWORD WINAPI BriWorker(LPVOID p)
 {
     int n, i;
+    LONG gen = 0;
     (void)p;
     for (;;) {
-        Bri_Free(g.bri, g.nbri > 0 ? g.nbri : 0);
-        InterlockedExchange(&g.nbri, -1);
-        n = Bri_Probe(g.bri, BRI_MAX);
-        for (i = 0; i < n; i++) g.briPct[i] = Bri_GetPercent(&g.bri[i]);
-        InterlockedExchange(&g.nbri, n);
-        PostMessageW(g.hwnd, WM_APP_BRI, (WPARAM)n, 0);
+        int pct[BRI_MAX];
+        Bri_Free(s_wbri, s_wn);
+        s_wn = 0;
+        n = Bri_Probe(s_wbri, BRI_MAX);
+        for (i = 0; i < n; i++) pct[i] = Bri_GetPercent(&s_wbri[i]);
+        s_wn = n;
+        gen++;
+        EnterCriticalSection(&s_briCs);
+        for (i = 0; i < n; i++) { s_briSnap[i] = s_wbri[i]; s_briSnapPct[i] = pct[i]; }
+        s_briSnapN = n;
+        s_briSnapGen = gen;
+        LeaveCriticalSection(&s_briCs);
+        PostMessageW(g.hwnd, WM_APP_BRI, (WPARAM)gen, 0);
         for (;;) {
             LONG v, t;
             WaitForSingleObject(g.briEvent, INFINITE);
-            if (g.briQuit) { Bri_Free(g.bri, g.nbri > 0 ? g.nbri : 0); CoUninitialize(); return 0; }
+            if (g.briQuit) { Bri_Free(s_wbri, s_wn); s_wn = 0; CoUninitialize(); return 0; }
             if (InterlockedExchange(&g.briReprobe, 0)) break;
             v = InterlockedExchange(&g.briWant, -1);
             t = g.briWantTarget;
-            if (v >= 0 && t >= 0 && t < g.nbri) {
-                BOOL ok = Bri_SetPercent(&g.bri[t], (int)v);
-                int back = Bri_GetPercent(&g.bri[t]);
-                Log(L"display: brightness %s '%s' set %ld%% -> %s, read back %d%%", Bri_KindName(g.bri[t].kind), g.bri[t].desc, v, ok ? L"ok" : L"FAILED", back);
-                if (back >= 0) g.briPct[t] = back;
+            if (v >= 0 && g.briWantGen != gen) { Log(L"display: brightness request for an old target list dropped"); continue; }
+            if (v >= 0 && t >= 0 && t < s_wn) {
+                BOOL ok = Bri_SetPercent(&s_wbri[t], (int)v);
+                int back = Bri_GetPercent(&s_wbri[t]);
+                Log(L"display: brightness %s '%s' set %ld%% -> %s, read back %d%%", Bri_KindName(s_wbri[t].kind), s_wbri[t].desc, v, ok ? L"ok" : L"FAILED", back);
             }
         }
     }
+}
+
+/* UI thread: take the worker's latest list (WM_APP_BRI) */
+static void TakeBrightness(void)
+{
+    int i;
+    EnterCriticalSection(&s_briCs);
+    g.nbri = s_briSnapN;
+    for (i = 0; i < s_briSnapN; i++) { g.bri[i] = s_briSnap[i]; g.briPct[i] = s_briSnapPct[i]; }
+    g.briGenUI = s_briSnapGen;
+    LeaveCriticalSection(&s_briCs);
 }
 
 static void MapBrightness(void)
@@ -729,11 +765,14 @@ static void FinishConfirm(BOOL keep, const wchar_t *how)
         SetStatus(L"Display settings kept.");
     } else {
         LONG rc;
+        BOOL restart = FALSE;
         g.busy = TRUE;
         rc = Dc_Restore(&g.snap);
         Dc_FreeSnap(&g.snap);
         g.busy = FALSE;
         Sleep(300);
+        ReapplyScale(&restart, L"after the revert");   /* a display switched back on gets Windows' default scale */
+        if (restart) RestartShell();
         Requery(L"reverted");
         Dc_Describe(&g.st, d, _countof(d));
         Log(L"display: REVERTED (%s) rc=%ld: %s", how, rc, d);
@@ -859,24 +898,69 @@ static int BuildSet(DcSet *set)
 
 static void RestartShell(void);
 
+/* scale combo: 100 % .. the largest scale every display accepts (scale.c); the scale in use is always listed, also
+   when it is above that limit (e.g. a display with a lower maximum was just switched on). Item data = dpi. */
+static void FillScaleList(void)
+{
+    HWND cb = Ctl(IDC_DPI);
+    int k, cur = 0, max = 0;
+    BOOL curListed = FALSE;
+    if (Scale_Query(&cur, &max)) s_scaleMax = max;
+    SendMessageW(cb, CB_RESETCONTENT, 0, 0);
+    for (k = 0; k < SCALE_MAXSTEPS && g_scaleSteps[k] <= s_scaleMax; k++) {
+        wchar_t t[32];
+        DWORD dpi = (DWORD)(g_scaleSteps[k] * 96 / 100);
+        if (dpi == g.dpiCur) curListed = TRUE;
+        _snwprintf_s(t, _countof(t), _TRUNCATE, L"%d%%%s", g_scaleSteps[k], dpi == g.dpiCur ? L" (current)" : L"");
+        SendMessageW(cb, CB_SETITEMDATA, (WPARAM)SendMessageW(cb, CB_ADDSTRING, 0, (LPARAM)t), (LPARAM)dpi);
+    }
+    if (!curListed) {
+        wchar_t t[40];
+        _snwprintf_s(t, _countof(t), _TRUNCATE, L"%lu%% (current)", g.dpiCur * 100 / 96);
+        SendMessageW(cb, CB_SETITEMDATA, (WPARAM)SendMessageW(cb, CB_ADDSTRING, 0, (LPARAM)t), (LPARAM)g.dpiCur);
+    }
+    CbSelData(IDC_DPI, (LPARAM)g.dpiPend);
+}
+
+/* the scale in use after a change: what Windows reports (a partial failure leaves the displays where they are) */
+static void ReadScaleBack(void)
+{
+    int cur = 0, max = 0;
+    if (Scale_Query(&cur, &max) && cur > 0) { g.dpiCur = (DWORD)(cur * 96 / 100); s_scaleMax = max; }
+}
+
+/* a display switched on or restored gets Windows' default scale: put the one scale back on every display */
+static void ReapplyScale(BOOL *restart, const wchar_t *why)
+{
+    BOOL ch = FALSE;
+    if (Scale_SetAll((int)(g.dpiCur * 100 / 96), &ch) && ch) {
+        Log(L"display: scale %lu%% re-applied (%s)", g.dpiCur * 100 / 96, why);
+        *restart = TRUE;
+    }
+    ReadScaleBack();
+    g.dpiPend = g.dpiCur;
+}
+
 static void Apply(void)
 {
     wchar_t err[200], d[1400];
     LONG rc = 0;
-    BOOL ok;
+    BOOL ok, restart = FALSE;   /* the shell is restarted ONCE, at the end, if any scale changed */
     if (g.busy || g.confirming) return;
     if (g.dpiPend != g.dpiCur) {
         BOOL changed = FALSE;
         int pct = (int)(g.dpiPend * 100 / 96);
-        if (Scale_SetAll(pct, &changed)) {
-            g.dpiCur = g.dpiPend;
-            Log(L"display: scale %d%% applied live (changed=%d)", pct, changed);
-            if (changed) RestartShell();
-            SetStatus(L"Scale %d%% applied.%s", pct, changed ? L" The taskbar restarts." : L"");
-        } else SetStatus(L"The scale could not be changed on every display (see the log).");
+        BOOL all = Scale_SetAll(pct, &changed);
+        ReadScaleBack();
+        g.dpiPend = g.dpiCur;
+        restart = changed;
+        Log(L"display: scale %d%% applied live (all=%d changed=%d, now %lu%%)", pct, all, changed, g.dpiCur * 100 / 96);
+        if (all) SetStatus(L"Scale %lu%% applied.%s", g.dpiCur * 100 / 96, changed ? L" The taskbar restarts." : L"");
+        else SetStatus(L"The scale could not be changed on every display (see the log).");
+        FillScaleList();
         UpdateDpiNote();
     }
-    if (!DisplayDirty()) { UpdateEnable(); return; }
+    if (!DisplayDirty()) { if (restart) RestartShell(); UpdateEnable(); return; }
     g.busy = TRUE;
     UpdateEnable();
     Dc_Snapshot(&g.snap);
@@ -901,16 +985,16 @@ static void Apply(void)
         Dc_FreeSnap(&g.snap);
         Log(L"display: apply FAILED (%s); restore rc=%ld", err, r2);
         Sleep(300);
+        ReapplyScale(&restart, L"after a refused layout change");
+        if (restart) RestartShell();
         Requery(L"apply failed");
         SetStatus(L"The change was refused: %s. Nothing was changed.", err);
         MessageBeep(MB_ICONWARNING);
         return;
     }
     Sleep(500);   /* let the mode settle before reading it back */
-    {   /* a display switched on here gets its own default scale from Windows: keep one scale on all displays */
-        BOOL ch = FALSE;
-        if (Scale_SetAll((int)(g.dpiCur * 100 / 96), &ch) && ch) { Log(L"display: scale %lu%% re-applied after the layout change", g.dpiCur * 100 / 96); RestartShell(); }
-    }
+    ReapplyScale(&restart, L"after the layout change");
+    if (restart) RestartShell();
     Requery(L"applied");
     EnsureVisible(g.hwnd);
     SetStatus(L"Applied. Confirm within %d seconds or the previous settings come back.", REVERT_SECONDS);
@@ -1008,7 +1092,6 @@ static void MakeControls(HWND h)
         { L"BUTTON", L"Close", BS_PUSHBUTTON | WS_TABSTOP, IDC_CLOSE },
     };
     size_t i;
-    int k;
     for (i = 0; i < _countof(c); i++) {
         BOOL hidden = c[i].id == IDC_L_BRI || c[i].id == IDC_BRIGHT || c[i].id == IDC_BRIVAL;
         CreateWindowExW(0, c[i].cls, c[i].text, WS_CHILD | (hidden ? 0 : WS_VISIBLE) | c[i].style, 0, 0, 10, 10, h, (HMENU)(INT_PTR)c[i].id, g.hi, NULL);
@@ -1016,12 +1099,7 @@ static void MakeControls(HWND h)
     if (!GetDlgItem(h, IDC_BRIGHT)) Log(L"display: brightness trackbar not created err=%lu", GetLastError());
     SendMessageW(GetDlgItem(h, IDC_BRIGHT), TBM_SETRANGE, TRUE, MAKELONG(0, 100));
     SendMessageW(GetDlgItem(h, IDC_BRIGHT), TBM_SETPAGESIZE, 0, 10);
-    /* 100 % .. the largest scale a display accepts (scale.c); item data = dpi (percent * 96 / 100) */
-    for (k = 0; k < SCALE_MAXSTEPS && g_scaleSteps[k] <= s_scaleMax; k++) {
-        wchar_t t[32];
-        _snwprintf_s(t, _countof(t), _TRUNCATE, L"%d%%%s", g_scaleSteps[k], (DWORD)(g_scaleSteps[k] * 96 / 100) == g.dpiCur ? L" (current)" : L"");
-        SendMessageW(GetDlgItem(h, IDC_DPI), CB_SETITEMDATA, (WPARAM)SendMessageW(GetDlgItem(h, IDC_DPI), CB_ADDSTRING, 0, (LPARAM)t), (LPARAM)(g_scaleSteps[k] * 96 / 100));
-    }
+    FillScaleList();
 }
 
 static void OnCommand(int id, int code)
@@ -1100,11 +1178,13 @@ static LRESULT CALLBACK DisplayProc(HWND h, UINT m, WPARAM wp, LPARAM lp)
             SetWindowTextW(Ctl(IDC_BRIVAL), v);
             g.briPct[g.briOf[g.sel]] = pos;
             InterlockedExchange(&g.briWantTarget, g.briOf[g.sel]);
+            InterlockedExchange(&g.briWantGen, g.briGenUI);
             InterlockedExchange(&g.briWant, pos);
             SetEvent(g.briEvent);
         }
         return 0;
     case WM_APP_BRI:
+        TakeBrightness();
         MapBrightness();
         if (g.nbri <= 0) Log(L"display: brightness row hidden (no controllable brightness: no WMI panel, no DDC/CI monitor)");
         else {
@@ -1122,7 +1202,10 @@ static LRESULT CALLBACK DisplayProc(HWND h, UINT m, WPARAM wp, LPARAM lp)
             KillTimer(h, TM_REQUERY);
             if (!g.busy) {
                 Requery(L"display change");
-                if (!g.confirming) { InterlockedExchange(&g.briReprobe, 1); SetEvent(g.briEvent); }   /* monitor handles changed */
+                if (!g.confirming) {   /* monitor handles changed: no brightness row until the new list arrives */
+                    g.nbri = -1; MapBrightness(); UpdateBrightnessRow();
+                    InterlockedExchange(&g.briReprobe, 1); SetEvent(g.briEvent);
+                }
             }
         }
         return 0;
@@ -1224,6 +1307,7 @@ int DisplayWindow(const wchar_t *uri, int argc, wchar_t **argv)
     Dc_Describe(&g.st, d, _countof(d));
     Log(L"display: window open (uri=%s) dpi-scale=%.2f rect=%ld,%ld,%ldx%ld: %s", uri ? uri : L"", g.s, rc.left, rc.top, rc.right - rc.left, rc.bottom - rc.top, d);
 
+    InitializeCriticalSection(&s_briCs);
     g.briEvent = CreateEventW(NULL, FALSE, FALSE, NULL);
     g.briThread = g.briEvent ? CreateThread(NULL, 0, BriWorker, NULL, 0, NULL) : NULL;
     if (!g.briThread) Log(L"display: brightness worker not started err=%lu (row stays hidden)", GetLastError());

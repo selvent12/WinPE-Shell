@@ -229,7 +229,9 @@ static void SvcStopTree(SC_HANDLE scm, const wchar_t *name, int depth)
         for (i = 0; i < cnt; i++) { Log(L"net: service %s: stopping dependent %s first", name, d[i].lpServiceName); SvcStopTree(scm, d[i].lpServiceName, depth + 1); }
     }
     if (!ControlService(s, SERVICE_CONTROL_STOP, &st) && GetLastError() != ERROR_SERVICE_NOT_ACTIVE) {
-        Log(L"net: service %s: stop FAILED err=%lu (state %lu)", name, GetLastError(), st.dwCurrentState);
+        DWORD e = GetLastError();
+        SERVICE_STATUS q;   /* st is undefined after a failed ControlService: read the state again */
+        Log(L"net: service %s: stop FAILED err=%lu (state %lu)", name, e, QueryServiceStatus(s, &q) ? q.dwCurrentState : 0);
         CloseServiceHandle(s);
         return;
     }
@@ -659,8 +661,16 @@ static int NetState(wchar_t *ips, size_t cch)
     DWORD dhcp = 0;
     NetGetState(s, _countof(s));
     NetIPv4(&leases, ips, cch);
-    if (!_wcsicmp(s, L"turning-on")) return NS_TURNING_ON;
-    if (!_wcsicmp(s, L"turning-off")) return NS_TURNING_OFF;
+    if (!_wcsicmp(s, L"turning-on") || !_wcsicmp(s, L"turning-off")) {
+        /* only while an operation really runs: a MyPEUI killed during "net on/off" leaves the state behind
+           (its mutex is then free or abandoned) -> judge by the real state below */
+        HANDLE m = NetLock();
+        if (!m) return !_wcsicmp(s, L"turning-on") ? NS_TURNING_ON : NS_TURNING_OFF;
+        Log(L"net: stale state '%s' (no operation running) - reset to the real state (%s)", s, leases ? L"on" : L"off");
+        NetSetState(leases ? L"on" : L"off");     /* while holding the lock: no operation can start in between */
+        NetUnlock(m);
+        s[0] = 0;
+    }
     if (leases) return NS_CONNECTED;
     scm = OpenSCManagerW(NULL, NULL, SC_MANAGER_CONNECT);
     if (scm) { dhcp = SvcCurrent(scm, L"Dhcp"); CloseServiceHandle(scm); }

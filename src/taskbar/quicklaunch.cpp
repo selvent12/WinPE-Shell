@@ -350,9 +350,11 @@ int QuickLaunchBar::DrawW11Button(LPNMTBCUSTOMDRAW cd)
         DrawIconEx(hdc, x, y, h, ics, ics, 0, NULL, DI_NORMAL);
     } else if (icon.get_sysiml_idx() >= 0) {
         static HIMAGELIST large = NULL;
-        if (!large) {
-            SHFILEINFO sfi;
-            large = (HIMAGELIST)SHGetFileInfo(TEXT("C:\\"), 0, &sfi, sizeof(sfi), SHGFI_SYSICONINDEX | SHGFI_LARGEICON);
+        static bool tried = false;      // looked up once, also when it fails (no retry on every paint)
+        if (!tried) {
+            tried = true;
+            SHFILEINFO sfi;     // no disk access (a PC with a blank disk has no C: in WinPE)
+            large = (HIMAGELIST)SHGetFileInfo(TEXT("folder"), FILE_ATTRIBUTE_DIRECTORY, &sfi, sizeof(sfi), SHGFI_SYSICONINDEX | SHGFI_LARGEICON | SHGFI_USEFILEATTRIBUTES);
         }
         HICON hl = large ? ImageList_GetIcon(large, icon.get_sysiml_idx(), ILD_NORMAL) : 0;
         if (hl) {

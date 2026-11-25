@@ -51,6 +51,8 @@
 #define MYPE_IDM_LAST           0x7F05
 #define MYPE_SV_IDLAST          (MYPE_IDM_FIRST - 1)
 #define MYPE_SHELL_EXIT_TIMEOUT 8000            // ms: clean exit for "Restart shell", then TerminateProcess
+#define MYPE_EXIT_RESTART_REQUESTED 0x7F04      // process exit code after a requested restart (guard: 0x7F05)
+extern bool g_mype_restart_requested;
 
 struct AM_DesktopShellWindow : public Window {
     typedef Window super;

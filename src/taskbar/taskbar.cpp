@@ -672,7 +672,13 @@ void TaskBar::Refresh()
             if (W11_Center())   // the centered group (Start + buttons) changes its width
                 PostMessage(GetParent(_hwnd), PM_RESIZE_CHILDREN, 0, 0);
         }
-        InvalidateRect(_htoolbar, NULL, FALSE); // the active window indicator follows the foreground window
+        // TB_SETSTATE already repaints a button whose state changed; repaint all only when the foreground window changed
+        // (Refresh can run on every shell hook event, or every 200 ms without shell hooks)
+        HWND fg = GetForegroundWindow();
+        if (fg != _w11_last_fg) {
+            _w11_last_fg = fg;
+            InvalidateRect(_htoolbar, NULL, FALSE);
+        }
     }
 }
 
@@ -685,9 +691,20 @@ TaskBarMap::iterator TaskBarMap::find_id(int id)
     return end();
 }
 
+int TaskBar::W11_MaxWidth = 0;
+
+// button width for n buttons: full width, narrower (down to the minimum) when the space the bar can give is short
+static int W11_ButtonWidthFor(int buttons, int space)
+{
+    int w = W11_TaskButtonWidth();
+    if (buttons > 0 && space > 0)
+        w = min(w, max((int)TASKBUTTONWIDTH_MIN, space / buttons));
+    return w;
+}
+
 int TaskBar::W11_WidthFor(int buttons)
 {
-    return buttons * W11_TaskButtonWidth();
+    return buttons * W11_ButtonWidthFor(buttons, W11_MaxWidth);
 }
 
 // button size = image + padding (TB_SETBUTTONSIZE alone is overridden by the toolbar's own calculation): the padding
@@ -746,11 +763,10 @@ void TaskBar::ResizeButtons()
 {
     if (W11_Enabled()) {
         int btns = (int)SendMessage(_htoolbar, TB_BUTTONCOUNT, 0, 0);
-        int w = W11_TaskButtonWidth();
-        if (btns > 0) {
-            int bar_width = ClientRect(_hwnd).right;
-            w = min(w, max((int)TASKBUTTONWIDTH_MIN, bar_width / btns));   // many windows: buttons get narrower
-        }
+        // centered: this window is sized to the buttons, so its current width is the OLD size when a window opens
+        // (the first button got the minimum width for a moment): use the space the desktop bar can give instead
+        int space = W11_Center() ? W11_MaxWidth : ClientRect(_hwnd).right;
+        int w = W11_ButtonWidthFor(btns, space);   // many windows: buttons get narrower
         if (w != _last_btn_width) {
             _last_btn_width = w;
             W11_SetButtonMetrics(w, ClientRect(_hwnd).bottom);

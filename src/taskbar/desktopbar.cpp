@@ -122,7 +122,8 @@ LRESULT DesktopBar::Init(LPCREATESTRUCT pcs)
     DrawText(canvas, start_str.c_str(), -1, &rect, DT_SINGLELINE | DT_CALCRECT);
 
     _deskbar_pos_y = DESKTOPBAR_TOP;
-    int start_btn_width = TASKBAR_ICON_SIZE + DPI_SX(rect.right) + (TASKBAR_ICON_SIZE / 4);
+    // rect.right is a measured text width, already in device pixels (DPI aware shell): not scaled again
+    int start_btn_width = TASKBAR_ICON_SIZE + rect.right + (TASKBAR_ICON_SIZE / 4);
 
     int start_btn_padding = 0;
     BOOL isEmptyStartIcon = JCFG2_DEF("JS_STARTMENU", "start_icon", TEXT("")).ToString().compare(TEXT("empty")) == 0;
@@ -131,6 +132,7 @@ LRESULT DesktopBar::Init(LPCREATESTRUCT pcs)
     }
     if (W11_Enabled() && !isEmptyStartIcon)
         start_btn_width = W11_StartButtonWidth();
+    _start_btn_w = start_btn_width;
     _taskbar_pos = start_btn_width + DPI_SX(start_btn_padding) + 1;
     // create "Start" button
     static WNDCLASS wc;
@@ -239,11 +241,12 @@ LRESULT DesktopBar::Init(LPCREATESTRUCT pcs)
 StartButton::StartButton(HWND hwnd, UINT nid, COLORREF textcolor, bool flat)
     :  PictureButton(hwnd, SizeIcon(nid, TASKBAR_ICON_SIZE), TASKBAR_BRUSH(), textcolor, flat)
 {
+    _empty = nid == IDI_EMPTY;
 }
 
 void StartButton::DrawItem(LPDRAWITEMSTRUCT dis)
 {
-    if (!W11_Enabled()) {
+    if (!W11_Enabled() || _empty) {
         super::DrawItem(dis);
         return;
     }
@@ -633,25 +636,29 @@ void DesktopBar::Resize(int cx, int cy)
     if (W11_Enabled() && !_hwndrebar) {
         // [Start][quick launch][task buttons] as one group: at the left edge, or centered on the bar (align center);
         // the notification area stays at the right edge
-        int start_w = _taskbar_pos - 1;
+        int start_w = _start_btn_w ? _start_btn_w : _taskbar_pos - 1;
+        int start_span = _taskbar_pos - 1;      // button + start_padding
         int right = cx - (notifyarea_width + 3);
         int left = DPI_SX(4), tasks_w;
+        // narrow screen: never over the notification area (quick launch shrinks first, then the task buttons)
+        quicklaunch_width = max(0, min(quicklaunch_width, right - left - start_span));
+        TaskBar::W11_MaxWidth = max(0, right - left - start_span - quicklaunch_width);
         if (W11_Center()) {
             tasks_w = (int)SendMessage(_hwndTaskBar, PM_GET_WIDTH, 0, 0);
-            int group = start_w + quicklaunch_width + tasks_w;
+            int group = start_span + quicklaunch_width + tasks_w;
             left = (cx - group) / 2;
             if (left + group > right)
                 left = right - group;
             left = max((int)DPI_SX(4), left);
-            tasks_w = min(tasks_w, right - left - start_w - quicklaunch_width);
+            tasks_w = min(tasks_w, right - left - start_span - quicklaunch_width);
         } else
-            tasks_w = right - left - start_w - quicklaunch_width;
+            tasks_w = right - left - start_span - quicklaunch_width;
         tasks_w = max(0, tasks_w);
         DeferWindowPos(hdwp, _hwndStartButton, 0, left, 1, start_w, cy - 2, SWP_NOZORDER | SWP_NOACTIVATE);
         if (_hwndQuickLaunch)
-            DeferWindowPos(hdwp, _hwndQuickLaunch, 0, left + start_w, 1, quicklaunch_width, cy - 2, SWP_NOZORDER | SWP_NOACTIVATE);
+            DeferWindowPos(hdwp, _hwndQuickLaunch, 0, left + start_span, 1, quicklaunch_width, cy - 2, SWP_NOZORDER | SWP_NOACTIVATE);
         if (_hwndTaskBar)
-            DeferWindowPos(hdwp, _hwndTaskBar, 0, left + start_w + quicklaunch_width, 1, tasks_w, cy - 2, SWP_NOZORDER | SWP_NOACTIVATE);
+            DeferWindowPos(hdwp, _hwndTaskBar, 0, left + start_span + quicklaunch_width, 1, tasks_w, cy - 2, SWP_NOZORDER | SWP_NOACTIVATE);
     } else if (_hwndrebar)
         DeferWindowPos(hdwp, _hwndrebar, 0, _taskbar_pos, 1, cx - _taskbar_pos - (notifyarea_width + 1), cy - 2, SWP_NOZORDER | SWP_NOACTIVATE);
     else {

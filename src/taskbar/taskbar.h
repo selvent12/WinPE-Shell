@@ -103,6 +103,9 @@ protected:
     int     DrawW11Button(LPNMTBCUSTOMDRAW cd);
     void    W11_SetButtonMetrics(int width, int height);
 
+    HWND        _w11_last_fg = 0;   // win11: foreground window at the last repaint (repaint only on a change)
+
 public:
     static int W11_WidthFor(int buttons);     // width the task buttons need (win11 style)
+    static int W11_MaxWidth;                  // space the desktop bar can give the task buttons (set in its Resize)
 };
