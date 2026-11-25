@@ -40,4 +40,7 @@ int NetCommand(int argc, wchar_t **argv);
 int NetTray(void);
 int NetWindow(const wchar_t *uri);
 
+/* vol.c: volume tray icon ("tray-vol") */
+int VolTray(void);
+
 #endif

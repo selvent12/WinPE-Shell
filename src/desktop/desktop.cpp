@@ -35,6 +35,7 @@
 #include "../taskbar/taskbar.h" // for PM_GET_LAST_ACTIVE
 
 static DWORD WINAPI MyPEShellExitGuard(LPVOID);   // MyPE "Restart shell" (defined with the desktop menu entries)
+bool g_mype_restart_requested = false;
 
 enum WallPaperStyle {
     STYLE_WP_STRETCH = 0,
@@ -597,6 +598,7 @@ LRESULT DesktopWindow::WndProc(UINT nmsg, WPARAM wparam, LPARAM lparam)
 
     case PM_MYPE_RESTART_SHELL: {
         // MyPE "Restart shell": clean exit (as the taskbar's terminate command), the MyPE launcher restarts the shell.
+        g_mype_restart_requested = true;     // exit code MYPE_EXIT_RESTART_REQUESTED (explorer.cpp)
         HANDLE guard = CreateThread(NULL, 0, MyPEShellExitGuard, NULL, 0, NULL);
         if (guard) CloseHandle(guard);
         _log_(TEXT("MyPE: restart shell requested - exiting"));

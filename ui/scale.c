@@ -22,12 +22,21 @@ static int Paths(ScaleSrc *out, int max)
     DISPLAYCONFIG_PATH_INFO *paths;
     DISPLAYCONFIG_MODE_INFO *modes;
     int n = 0;
-    LONG rc = GetDisplayConfigBufferSizes(QDC_ONLY_ACTIVE_PATHS, &np, &nm);
-    if (rc != ERROR_SUCCESS) { Log(L"scale: GetDisplayConfigBufferSizes rc=%ld", rc); return 0; }
-    paths = (DISPLAYCONFIG_PATH_INFO *)calloc(np ? np : 1, sizeof(*paths));
-    modes = (DISPLAYCONFIG_MODE_INFO *)calloc(nm ? nm : 1, sizeof(*modes));
-    if (!paths || !modes) { free(paths); free(modes); return 0; }
-    rc = QueryDisplayConfig(QDC_ONLY_ACTIVE_PATHS, &np, paths, &nm, modes, NULL);
+    LONG rc;
+    int tries;
+    paths = NULL; modes = NULL;
+    /* right after a topology change the sizes can change between the two calls: retry (ERROR_INSUFFICIENT_BUFFER) */
+    for (tries = 0; tries < 4; tries++) {
+        free(paths); free(modes); paths = NULL; modes = NULL;
+        rc = GetDisplayConfigBufferSizes(QDC_ONLY_ACTIVE_PATHS, &np, &nm);
+        if (rc != ERROR_SUCCESS) { Log(L"scale: GetDisplayConfigBufferSizes rc=%ld", rc); return 0; }
+        paths = (DISPLAYCONFIG_PATH_INFO *)calloc(np ? np : 1, sizeof(*paths));
+        modes = (DISPLAYCONFIG_MODE_INFO *)calloc(nm ? nm : 1, sizeof(*modes));
+        if (!paths || !modes) { free(paths); free(modes); return 0; }
+        rc = QueryDisplayConfig(QDC_ONLY_ACTIVE_PATHS, &np, paths, &nm, modes, NULL);
+        if (rc != ERROR_INSUFFICIENT_BUFFER) break;
+        Sleep(200);
+    }
     if (rc != ERROR_SUCCESS) { Log(L"scale: QueryDisplayConfig rc=%ld", rc); np = 0; }
     for (i = 0; i < np && n < max; i++) {
         UINT32 mi = paths[i].sourceInfo.modeInfoIdx;
@@ -70,6 +79,42 @@ static void Steps(const ScaleGet *g, int *rec, int *cur, int *max)
     *max = *rec + g->maxRel;
     if (*max >= SCALE_MAXSTEPS) *max = SCALE_MAXSTEPS - 1;
     if (*max < *rec) *max = *rec;
+}
+
+/* effective DPI of a source's monitor (GetDpiForMonitor through the source's GDI name), as a step index; -1 unknown.
+   Used when Windows reports no current scale (placeholder before the first change in the session). */
+typedef struct { const wchar_t *gdi; HMONITOR found; } MonFind;
+static BOOL CALLBACK FindMon(HMONITOR m, HDC dc, LPRECT r, LPARAM lp)
+{
+    MonFind *f = (MonFind *)lp;
+    MONITORINFOEXW mi;
+    (void)dc; (void)r;
+    mi.cbSize = sizeof(mi);
+    if (GetMonitorInfoW(m, (MONITORINFO *)&mi) && !_wcsicmp(mi.szDevice, f->gdi)) { f->found = m; return FALSE; }
+    return TRUE;
+}
+static int EffectiveStep(const ScaleSrc *s)
+{
+    DISPLAYCONFIG_SOURCE_DEVICE_NAME sn;
+    MonFind f;
+    UINT dx = 0, dy = 0;
+    int k, best = 0, pct;
+    typedef HRESULT (WINAPI *Fn)(HMONITOR, int, UINT *, UINT *);
+    static Fn fn = NULL;
+    static BOOL tried = FALSE;
+    if (!tried) { HMODULE sh = LoadLibraryW(L"shcore.dll"); fn = sh ? (Fn)(void *)GetProcAddress(sh, "GetDpiForMonitor") : NULL; tried = TRUE; }
+    ZeroMemory(&sn, sizeof(sn));
+    sn.header.type = DISPLAYCONFIG_DEVICE_INFO_GET_SOURCE_NAME;
+    sn.header.size = sizeof(sn);
+    sn.header.adapterId = s->adapter;
+    sn.header.id = s->id;
+    if (!fn || DisplayConfigGetDeviceInfo(&sn.header) != ERROR_SUCCESS) return -1;
+    f.gdi = sn.viewGdiDeviceName; f.found = NULL;
+    EnumDisplayMonitors(NULL, NULL, FindMon, (LPARAM)&f);
+    if (!f.found || FAILED(fn(f.found, 0 /* MDT_EFFECTIVE_DPI */, &dx, &dy)) || !dx) return -1;
+    pct = (int)(dx * 100 / 96);
+    for (k = 1; k < SCALE_MAXSTEPS; k++) if (abs(g_scaleSteps[k] - pct) < abs(g_scaleSteps[best] - pct)) best = k;
+    return best;
 }
 
 int Scale_Nearest(int pct)
@@ -135,6 +180,7 @@ BOOL Scale_SetAll(int pct, BOOL *changed)
         LONG rc;
         if (!Get(&src[i], &g)) { ok = FALSE; continue; }
         Steps(&g, &rec, &cur, &max);
+        if (cur < 0) cur = EffectiveStep(&src[i]);   /* placeholder: compare with what the display really uses */
         step = want > max ? max : want;
         if (step == cur) { Log(L"scale: source %u already %d%%", src[i].id, g_scaleSteps[step]); continue; }
         ZeroMemory(&s, sizeof(s));

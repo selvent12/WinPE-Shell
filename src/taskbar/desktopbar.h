@@ -90,6 +90,7 @@ protected:
     RECT    _work_area_org;
     RECT    _work_area;
     int     _taskbar_pos;
+    int     _start_btn_w = 0;   // width of the Start button as created (without start_padding)
     int     _deskbar_pos_y;
     LRESULT Init(LPCREATESTRUCT pcs);
     LRESULT WndProc(UINT nmsg, WPARAM wparam, LPARAM lparam);
@@ -136,4 +137,5 @@ protected:
     virtual void DrawItem(LPDRAWITEMSTRUCT dis);   // win11 style: Windows logo, rounded hover background
 
     bool    _hot = false;
+    bool    _empty = false;     // JS_STARTMENU.start_icon "empty": no logo, classic drawing (also in win11 style)
 };

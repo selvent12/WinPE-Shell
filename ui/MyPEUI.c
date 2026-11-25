@@ -9,6 +9,7 @@
  *   MyPEUI.exe net on|off|toggle|status [/quiet] [/boot]   network control (net.c, spec 14)
  *   MyPEUI.exe tray-net                 network tray icon (net.c)
  *   MyPEUI.exe scale <percent> [/norestart]   live display scale on every display (scale.c), shell restart if needed
+ *   MyPEUI.exe tray-vol                 volume tray icon (vol.c)
  *
  * Shutdown dialog: semi-opaque full-screen overlay on every monitor, two round buttons on the primary one.
  *   Restart -> wpeutil Reboot, Power -> wpeutil Shutdown. Esc, click outside the buttons or a display change = cancel.
@@ -117,8 +118,22 @@ static BOOL RunPlugged(const wchar_t *feature, const wchar_t *uri, BOOL *builtin
         Log(L"feature %s: 'enabled' but no built-in window in this MyPEUI version", feature);
         return FALSE;
     }
-    if (uri && uri[0]) _snwprintf_s(line, _countof(line), _TRUNCATE, L"%s \"%s\"", cmd, uri);
-    else wcsncpy_s(line, _countof(line), cmd, _TRUNCATE);
+    if (uri && uri[0]) {
+        /* the URI becomes ONE quoted argument: a '"' or a control character could split it (or inject into a
+           cmd/powershell handler), trailing backslashes would escape the closing quote */
+        wchar_t u[1024];
+        size_t k, len;
+        for (k = 0; uri[k]; k++)
+            if (uri[k] == L'"' || uri[k] < 0x20) {
+                Log(L"feature %s: URI refused (quote or control character): %s", feature, uri);
+                Message(L"MyPE refused this link (invalid characters).");
+                return TRUE;
+            }
+        wcsncpy_s(u, _countof(u), uri, _TRUNCATE);
+        len = wcslen(u);
+        while (len > 0 && u[len - 1] == L'\\') u[--len] = 0;
+        _snwprintf_s(line, _countof(line), _TRUNCATE, L"%s \"%s\"", cmd, u);
+    } else wcsncpy_s(line, _countof(line), cmd, _TRUNCATE);
     ZeroMemory(&si, sizeof(si));
     si.cb = sizeof(si);
     if (!CreateProcessW(NULL, line, NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi)) {
@@ -598,7 +613,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE hPrev, LPWSTR cmdLine, int nShow)
     SetDpiAware();
     g_argc = argc; g_argv = argv;
     if (!argv || argc < 2) {
-        Message(L"MyPEUI.exe shutdown|restart [/dryrun]\nMyPEUI.exe uri <uri>\nMyPEUI.exe open display [/select N] | network | sysinfo\nMyPEUI.exe net on|off|toggle|status [/quiet]\nMyPEUI.exe tray-net");
+        Message(L"MyPEUI.exe shutdown|restart [/dryrun]\nMyPEUI.exe uri <uri>\nMyPEUI.exe open display [/select N] | network | sysinfo\nMyPEUI.exe net on|off|toggle|status [/quiet]\nMyPEUI.exe tray-net\nMyPEUI.exe tray-vol\nMyPEUI.exe scale <percent> [/norestart]");
         if (argv) LocalFree(argv);
         return 2;
     }
@@ -612,6 +627,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE hPrev, LPWSTR cmdLine, int nShow)
     else if (!_wcsicmp(cmd, L"net")) rc = NetCommand(argc, argv);
     else if (!_wcsicmp(cmd, L"tray-net")) rc = NetTray();
     else if (!_wcsicmp(cmd, L"scale")) rc = ScaleCommand(argc, argv);
+    else if (!_wcsicmp(cmd, L"tray-vol")) rc = VolTray();
     else if (!_wcsnicmp(cmd, L"ms-settings:", 12) || !_wcsnicmp(cmd, L"ms-availablenetworks:", 21)) rc = HandleUri(cmd);
     else { Log(L"unknown command '%s'", cmd); Message(L"MyPEUI: unknown command '%s'.", cmd); rc = 2; }
     LocalFree(argv);

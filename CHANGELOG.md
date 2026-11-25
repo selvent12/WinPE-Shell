@@ -28,6 +28,11 @@ Base: PExplorer branch `WinXShell_shellpart` @ `5f8b886` (2018-08-19).
   highlights, theme colors, floating above the taskbar (centered on the screen with `align: center`). The classic
   look stays the default.
 - **10** System DPI aware manifest (the taskbar was bitmap-stretched, blurry at 125/150 %).
+- **12** Review fixes: system image lists without disk access (no Start menu icons on a PC without C:), classic look
+  no longer DPI-scaled twice, requested restart exits with 0x7F04 (the launcher's watchdog does not count it as a
+  crash), centered layout without the narrow-button flicker, narrow screens, `start_icon: "empty"` in win11 style,
+  repaint only when the foreground window changes, extra_folders scan thread safe at exit, case-insensitive style
+  values, feature marker string `WINPESHELL_FEATURES=...` for image builders.
 - Repository layout: shell sources moved to `src/`.
 
 ### UI utility (`ui/`, new)
@@ -38,6 +43,12 @@ Base: PExplorer branch `WinXShell_shellpart` @ `5f8b886` (2018-08-19).
 - Network: OFF at boot, `net on/off/toggle/status`, tray icon, Wi-Fi window (Native Wifi API, temporary profiles
   only), DNS client handling.
 - Handler for the `ms-settings:` and `ms-availablenetworks:` protocols.
+- Volume tray icon (`MyPEUI.exe tray-vol`, `vol.c`): level/mute icon, volume window (slider, Mute, Mixer), menu
+  (Mute, Volume mixer, Sound settings), follows the default playback device.
+- Review fixes: one shell restart per Apply, scale re-applied after a revert or a refused layout change, effective
+  DPI used when Windows reports no current scale (no needless restart at boot), brightness worker owns its target
+  list (generation-tagged slider requests), URIs with quotes/control characters refused, stale network
+  "turning-on/off" state reset.
 
 ### Test tools (`tools/test/`, new)
 - `DlgTest` (file dialog reproduction, 5 modes), `MyPEStress` (window/shell stress), `MyPEDump` (minidump writer),

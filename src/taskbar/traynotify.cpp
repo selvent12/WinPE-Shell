@@ -1456,9 +1456,8 @@ void ClockWindow::Paint()
         inited = true;
         rc = ClientRect(_hwnd);
         RECT rc_text = { 0, 0 };
+        // measured text is already in device pixels (the shell is DPI aware): no DPI_* scaling here
         DrawText(canvas, _time, -1, &rc_text, DT_CENTER | DT_NOPREFIX | DT_CALCRECT);
-        rc_text.right = DPI_SX(rc_text.right);
-        rc_text.bottom = DPI_SY(rc_text.bottom);
         rc.top += (rc.bottom - rc_text.bottom) / 2;
     }
 

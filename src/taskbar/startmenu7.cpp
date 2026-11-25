@@ -143,7 +143,9 @@ static void MergeTree(Node &dst, const Node &src)
 #define PM_SM7_EXTRA_DONE   (WM_APP + 0x71)
 
 static CRITICAL_SECTION s_extraLock;
-static Node s_extraTree;                // last complete result (guarded by s_extraLock)
+// last complete result (guarded by s_extraLock). Allocated once and never freed: the scan thread may still be
+// running when the shell exits ("Restart shell"); a static object would be destroyed under it at process exit.
+static Node *s_extraTree = NULL;
 static LONG s_extraBusy = 0;
 static HWND s_extraNotify = NULL;
 
@@ -194,7 +196,7 @@ static DWORD WINAPI ExtraScanThread(LPVOID)
     }
     SetErrorMode(oldMode);
     EnterCriticalSection(&s_extraLock);
-    s_extraTree = tree;
+    *s_extraTree = tree;
     LeaveCriticalSection(&s_extraLock);
     InterlockedExchange(&s_extraBusy, 0);
     if (s_extraNotify)
@@ -207,6 +209,8 @@ static void EnsureExtraInit()
     static bool init = false;
     if (!init) {
         InitializeCriticalSection(&s_extraLock);
+        s_extraTree = new Node();
+        s_extraTree->folder = true;
         init = true;
     }
 }
@@ -227,7 +231,7 @@ static void MergeExtra(Node &root)
 {
     EnsureExtraInit();
     EnterCriticalSection(&s_extraLock);
-    MergeTree(root, s_extraTree);
+    MergeTree(root, *s_extraTree);
     LeaveCriticalSection(&s_extraLock);
 }
 
@@ -363,7 +367,7 @@ private:
 
 void StartMenu7::SetColors()
 {
-    _w11 = JCFG2_DEF("JS_STARTMENU", "style", TEXT("classic")).ToString(std::wstring(L"classic")).compare(L"win11") == 0;
+    _w11 = _wcsicmp(JCFG2_DEF("JS_STARTMENU", "style", TEXT("classic")).ToString(std::wstring(L"classic")).c_str(), L"win11") == 0;
     if (!_w11)
         return;                         // the Windows 7 colors above
     if (W11_Dark()) {
@@ -467,9 +471,10 @@ void StartMenu7::Create()
     lf.lfHeight = lf.lfHeight * 5 / 4;
     _fontBold = CreateFontIndirect(&lf);
 
+    // system image lists without touching a disk: a PC with a blank disk has no C: in WinPE (no icons at all before)
     SHFILEINFOW sfi;
-    _ilSmall = (HIMAGELIST)SHGetFileInfoW(L"C:\\", 0, &sfi, sizeof(sfi), SHGFI_SYSICONINDEX | SHGFI_SMALLICON);
-    _ilLarge = (HIMAGELIST)SHGetFileInfoW(L"C:\\", 0, &sfi, sizeof(sfi), SHGFI_SYSICONINDEX | SHGFI_LARGEICON);
+    _ilSmall = (HIMAGELIST)SHGetFileInfoW(L"folder", FILE_ATTRIBUTE_DIRECTORY, &sfi, sizeof(sfi), SHGFI_SYSICONINDEX | SHGFI_SMALLICON | SHGFI_USEFILEATTRIBUTES);
+    _ilLarge = (HIMAGELIST)SHGetFileInfoW(L"folder", FILE_ATTRIBUTE_DIRECTORY, &sfi, sizeof(sfi), SHGFI_SYSICONINDEX | SHGFI_LARGEICON | SHGFI_USEFILEATTRIBUTES);
     int cy;
     if (_ilSmall) ImageList_GetIconSize(_ilSmall, &_cxSmall, &cy);
     if (_ilLarge) ImageList_GetIconSize(_ilLarge, &_cxLarge, &cy);
@@ -1162,7 +1167,7 @@ LRESULT StartMenu7::Proc(UINT msg, WPARAM wp, LPARAM lp)
 bool StartMenu7_Enabled()
 {
     std::wstring style = JCFG2_DEF("JS_STARTMENU", "style", TEXT("classic")).ToString(std::wstring(L"classic"));
-    return style == L"win7" || style == L"win11";
+    return !_wcsicmp(style.c_str(), L"win7") || !_wcsicmp(style.c_str(), L"win11");
 }
 
 void StartMenu7_Toggle(HWND hwndStartButton) { StartMenu7::Get().Toggle(hwndStartButton); }
