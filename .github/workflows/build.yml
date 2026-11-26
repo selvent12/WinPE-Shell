@@ -26,5 +26,6 @@ jobs:
             out/shell/WinXShell.exe
             out/ui/MyPEUI.exe
             out/test/*.exe
+            out/winpe/*
             out/build-sha256.csv
           if-no-files-found: error

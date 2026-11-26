@@ -6,6 +6,8 @@
              out\shell\WinXShell.exe      the shell (desktop, taskbar, Start menu, tray)
              out\ui\MyPEUI.exe            shutdown dialog, Display window, network ON/OFF + Wi-Fi, volume icon, ms-settings handler
              out\test\*.exe               DlgTest, MyPEStress, MyPEDump, DpiTest (only with -TestTools; for VM tests)
+             out\winpe\                   MyPEStart.exe (startup launcher + shell watchdog), DisplayLayout.dll,
+                                          Set-DisplayLayout.ps1, Show-SystemInfo.ps1 (WinPE helpers from winpe\)
              out\build-sha256.csv         SHA256 + PE machine of every binary
            Requirements: Visual Studio 2022 Build Tools with "Desktop development with C++" (MSVC v143) and the
            Windows 11 SDK 10.0.26100. See README.md (Build).
@@ -71,6 +73,21 @@ if ($TestTools) {
         Get-ChildItem -Filter *.obj | Remove-Item -Force
     } finally { Pop-Location }
 }
+
+# ---- 2b) WinPE helpers (winpe\): startup launcher + display layout library ----
+New-Item -ItemType Directory -Force "$Out\winpe" | Out-Null
+Push-Location "$Out\winpe"
+try {
+    & cl.exe /nologo /W4 /WX /O2 /MT /GS /guard:cf /DUNICODE /D_UNICODE (Join-Path $PSScriptRoot 'winpe\MyPEStart.c') /Fe:MyPEStart.exe /link /SUBSYSTEM:WINDOWS /DYNAMICBASE /NXCOMPAT /guard:cf kernel32.lib 2>&1 | Out-File winpe-build.log -Encoding UTF8
+    if ($LASTEXITCODE) { Get-Content winpe-build.log | Select-Object -Last 20; throw "cl failed for MyPEStart ($LASTEXITCODE)" }
+    Get-ChildItem -Filter *.obj | Remove-Item -Force
+    # DisplayLayout.dll: C# (P/Invoke only), compiled with the .NET Framework 4 compiler that ships with Windows
+    $csc = "$env:windir\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
+    if ((Get-AuthenticodeSignature $csc).Status -ne 'Valid') { throw "csc.exe signature not valid: $csc" }
+    & $csc /nologo /target:library /optimize+ /out:DisplayLayout.dll (Join-Path $PSScriptRoot 'winpe\DisplayLayout.cs')
+    if ($LASTEXITCODE) { throw "csc failed for DisplayLayout ($LASTEXITCODE)" }
+    Copy-Item (Join-Path $PSScriptRoot 'winpe\*.ps1') . -Force
+} finally { Pop-Location }
 
 # ---- 3) hashes + architecture ----
 $rows = Get-ChildItem $Out -Recurse -File -Include *.exe, *.dll | Where-Object FullName -notlike "$obj\*" | ForEach-Object {

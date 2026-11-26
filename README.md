@@ -21,6 +21,7 @@ no prebuilt third-party binaries are used.
 |---|---|---|---|
 | Shell | `src/` | `WinXShell.exe` | Desktop, taskbar, Start menu, tray, desktop context menu |
 | UI utility | `ui/` | `MyPEUI.exe` | Shutdown dialog, Display window + live scale, network ON/OFF + Wi-Fi, volume icon, `ms-settings:` handler |
+| WinPE helpers | `winpe/` | `MyPEStart.exe`, `DisplayLayout.dll`, 2 scripts | Startup launcher + shell watchdog, display layout at boot, system information |
 | Test tools | `tools/test/` | `DlgTest`, `MyPEStress`, `MyPEDump`, `DpiTest` | Checks inside a test VM (optional) |
 
 ## 2. Features
@@ -67,6 +68,18 @@ temporary profile that is never stored). A state left behind by a killed process
 **Volume icon**: level / mute icon of the default playback device, volume window (slider, Mute, Mixer), menu (Mute,
 Volume mixer, Sound settings); follows device changes and live scale changes.
 
+### WinPE helpers (`winpe/`)
+- **`MyPEStart.exe`** (C, no console): the only `winpeshl.ini` entry. Runs `wpeinit`, then the steps of
+  `X:\MyPE\config\startup.ini` `[run]` (`wait|`, `nowait|`, `wait<seconds>|` = wait at most that long), then starts the
+  shell and restarts it when it exits. Crashes: at most 4 starts in 60 s, then a rescue command prompt; requested
+  restarts (exit codes `0x7F04` / `0x7F05`) have their own, larger limit. Log: `X:\MyPE\logs\startup.log`.
+- **`DisplayLayout.dll`** (C#, P/Invoke only) + **`Set-DisplayLayout.ps1`**: at boot, waits for the GPU driver, sets
+  Extend mode, the native resolution / refresh of every monitor, the main display and positions from `display.json`,
+  falls back to one monitor on the Basic Display Adapter, then applies the default scale live (`MyPEUI scale`). A
+  `MyPE\config\display.json` on the boot stick (drive with the marker `MyPE\mype-stick`) overrides the scale.
+- **`Show-SystemInfo.ps1`**: read-only system report (system, firmware / Secure Boot, CPU, memory modules, graphics,
+  disks and volumes, network adapters) shown in Notepad; used as `sysinfo=` in `mypeui.ini`.
+
 ## 3. Build
 
 Requirements: Windows 10/11 x64, **Visual Studio 2022 Build Tools** with *Desktop development with C++* (MSVC v143)
@@ -79,7 +92,8 @@ cd WinPE-Shell
 .\build.ps1 -TestTools             # + test tools
 .\build.ps1 -VsPath D:\BuildTools  # if vswhere cannot find Build Tools
 ```
-Output: `out\shell\WinXShell.exe`, `out\ui\MyPEUI.exe`, `out\test\*.exe`, logs and `out\build-sha256.csv` (SHA256 and
+Output: `out\shell\WinXShell.exe`, `out\ui\MyPEUI.exe`, `out\winpe\` (MyPEStart.exe, DisplayLayout.dll built with the
+Windows .NET Framework 4 `csc.exe`, the two scripts), `out\test\*.exe`, logs and `out\build-sha256.csv` (SHA256 and
 PE machine of every binary). The shell treats the x64 truncation warnings (C4311/C4312/C4302/C4244/C4267/C4090) as
 errors; the UI utility builds with `/W4 /WX`. MSVC binaries are not bit-for-bit reproducible across machines: if you
 keep an allowlist of hashes, re-approve after each build.
@@ -179,13 +193,16 @@ Base: PExplorer branch `WinXShell_shellpart` @ `5f8b886` (2018-08-19).
   volume icon.
 - **13** `extra_folders_marker` (boot stick only); volume icon: icon size follows live scale changes, the slider
   follows outside volume changes, logging limited, stale audio enumerator re-created.
+- **14** WinPE helpers moved here from the image builder: startup launcher / watchdog, display layout, system
+  information (`winpe/`, built by `build.ps1`).
 
 ## 7. License and credits
 - Shell (`src/`): GNU LGPL 2.1 or later, as the upstream sources. Descends from the **ReactOS Explorer** (Copyright the
   ReactOS project and Martin Fuchs) and **PExplorer / WinXShell shell part** by slorelee
   (https://github.com/slorelee/PExplorer, branch `WinXShell_shellpart`, commit `5f8b886f`, full history kept here).
 - `src/vendor/json.*`: Copyright (c) 2013 Jeff Weinstein, MIT License (`src/vendor/LICENSE`).
-- UI utility (`ui/`), test tools, build scripts and documentation: selvent12, GNU LGPL 2.1 or later.
+- UI utility (`ui/`), WinPE helpers (`winpe/`), test tools, build scripts and documentation: selvent12, GNU LGPL 2.1
+  or later.
 - The utility's features were designed from public documentation and observed behaviour; no code from closed-source
   shells was used. "Windows" is a trademark of Microsoft Corporation; this project is not affiliated with Microsoft,
   ReactOS or the authors of WinXShell.
