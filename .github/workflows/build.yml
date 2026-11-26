@@ -1,0 +1,30 @@
+# Builds WinPE-Shell with the Microsoft build tools preinstalled on the GitHub Windows runner (VS 2022, Windows SDK
+# 10.0.26100): the same build.ps1 as locally, no extra downloads. The binaries are uploaded as a workflow artifact
+# together with build-sha256.csv. Hashes differ from local builds (MSVC output is not bit-identical across machines).
+name: build
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Build (shell, UI utility, test tools)
+        shell: pwsh
+        run: .\build.ps1 -TestTools
+      - uses: actions/upload-artifact@v4
+        with:
+          name: WinPE-Shell-x64
+          path: |
+            out/shell/WinXShell.exe
+            out/ui/MyPEUI.exe
+            out/test/*.exe
+            out/build-sha256.csv
+          if-no-files-found: error

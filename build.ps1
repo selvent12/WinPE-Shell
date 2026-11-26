@@ -4,11 +4,11 @@
 .DESCRIPTION
            Output (default .\out):
              out\shell\WinXShell.exe      the shell (desktop, taskbar, Start menu, tray)
-             out\ui\MyPEUI.exe            shutdown dialog, Display window, network ON/OFF + Wi-Fi, ms-settings handler
-             out\test\*.exe               DlgTest, MyPEStress, MyPEDump (only with -TestTools; for VM tests)
+             out\ui\MyPEUI.exe            shutdown dialog, Display window, network ON/OFF + Wi-Fi, volume icon, ms-settings handler
+             out\test\*.exe               DlgTest, MyPEStress, MyPEDump, DpiTest (only with -TestTools; for VM tests)
              out\build-sha256.csv         SHA256 + PE machine of every binary
            Requirements: Visual Studio 2022 Build Tools with "Desktop development with C++" (MSVC v143) and the
-           Windows 11 SDK 10.0.26100. See docs\BUILD.md.
+           Windows 11 SDK 10.0.26100. See README.md (Build).
 .EXAMPLE   .\build.ps1
 .EXAMPLE   .\build.ps1 -VsPath 'D:\BuildTools' -TestTools
 #>

@@ -1,5 +1,5 @@
 /*
- * dispcfg.h - display configuration helpers for the MyPE "Display" window (docs/FEATURES.md).
+ * dispcfg.h - display configuration helpers for the MyPE "Display" window (README.md).
  * Same approach as builder\tools\Set-DisplayLayout.ps1 / DisplayLayout.cs, rewritten in C:
  *   topology (Extend / Duplicate / only N) and snapshot / revert: QueryDisplayConfig + SetDisplayConfig (CCD API);
  *   per-monitor resolution / refresh / rotation / primary / position: EnumDisplaySettings + ChangeDisplaySettingsEx.

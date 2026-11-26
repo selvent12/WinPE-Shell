@@ -1,5 +1,5 @@
 /*
- * brightness.h - reusable brightness module (docs/FEATURES.md). Own code.
+ * brightness.h - reusable brightness module (README.md). Own code.
  *   1. laptop panels: WMI root\wmi  WmiMonitorBrightness (read) / WmiMonitorBrightnessMethods.WmiSetBrightness (write)
  *   2. external monitors: Microsoft monitor configuration API (dxva2.dll, DDC/CI), loaded at run time (optional in PE)
  * All functions are synchronous and can be slow (WMI start, DDC/CI bus): call them from a worker thread.

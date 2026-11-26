@@ -12,7 +12,7 @@
 //               Programs tree, folders expand in place), search box (filters all shortcuts; Enter with no match
 //               runs the text as a command).
 // Right column: configurable links (JS_STARTMENU.win7.right), Shut down button + arrow (Restart, Restart shell).
-// Documented in docs/CONFIGURATION.md.
+// Documented in README.md.
 
 #pragma once
 

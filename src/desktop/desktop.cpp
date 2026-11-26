@@ -1281,7 +1281,7 @@ void SetSubMenuMap(HMENU hmenu, CtxMenuInterfaces *pcm_ifs, map<HMENU, CtxMenuIn
     }
 }
 
-// ---- MyPE desktop menu entries (docs/FEATURES.md) ----
+// ---- MyPE desktop menu entries (README.md) ----
 // Configuration (WinXShell.jcfg), every field optional:
 //   "JS_DESKTOP": { "menu": { "<key>": { "command": "...", "parameters": "...", "text": "...", "hide": false } } }
 // keys: display, sysprops, cmdhere, restartshell, restart, shutdown. Without "command", restart / shutdown use the

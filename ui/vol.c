@@ -1,5 +1,5 @@
 /*
- * vol.c - MyPE volume tray icon (docs/FEATURES.md). Own code, Win32/GDI + Core Audio (MMDevice API) in C.
+ * vol.c - MyPE volume tray icon (README.md). Own code, Win32/GDI + Core Audio (MMDevice API) in C.
  *
  *   MyPEUI.exe tray-vol      tray icon of the default playback device (started at boot, single instance)
  *
@@ -47,6 +47,8 @@ static struct {
     int level;                 /* 0..100, -1 = no device */
     BOOL muted;
     int iconLevel, iconMuted;  /* what the current icon shows */
+    int iconSize;              /* and its size (DPI) */
+    BOOL dragging;             /* slider thumb being dragged */
     HICON icon;
     HFONT font;
     double s;
@@ -160,6 +162,15 @@ static void ReleaseDevice(void)
     V.devId[0] = 0; V.devName[0] = 0;
 }
 
+/* failures are retried every 3 s: log only the first one of a series (the log lives on the RAM disk) */
+static BOOL s_failLogged;
+static void LogFail(const wchar_t *what, HRESULT hr)
+{
+    if (s_failLogged) return;
+    s_failLogged = TRUE;
+    Log(L"tray-vol: %s hr=0x%08lX (retrying every 3 s, logged once)", what, (unsigned long)hr);
+}
+
 static BOOL Acquire(void)
 {
     IMMDevice *dev = NULL;
@@ -170,10 +181,16 @@ static BOOL Acquire(void)
     V.lastAcquire = GetTickCount();
     if (!V.en) {
         hr = CoCreateInstance(&s_clsidEnum, NULL, CLSCTX_ALL, &s_iidEnum, (void **)&V.en);
-        if (FAILED(hr)) { Log(L"tray-vol: MMDeviceEnumerator not available hr=0x%08lX (audio services?)", (unsigned long)hr); V.en = NULL; return FALSE; }
+        if (FAILED(hr)) { LogFail(L"MMDeviceEnumerator not available (audio services?)", hr); V.en = NULL; return FALSE; }
     }
     hr = IMMDeviceEnumerator_GetDefaultAudioEndpoint(V.en, eRender, eConsole, &dev);
-    if (FAILED(hr) || !dev) return FALSE;
+    if (FAILED(hr) || !dev) {
+        /* no device (E_NOTFOUND) is normal; anything else (e.g. RPC error after an AudioEndpointBuilder restart):
+           the enumerator is stale, create a new one next time */
+        if (hr != (HRESULT)0x80070490) { IMMDeviceEnumerator_Release(V.en); V.en = NULL; }
+        LogFail(L"no default playback device", hr);
+        return FALSE;
+    }
     hr = IMMDevice_Activate(dev, &s_iidVol, CLSCTX_ALL, NULL, (void **)&V.vol);
     if (SUCCEEDED(IMMDevice_GetId(dev, &id)) && id) { wcsncpy_s(V.devId, _countof(V.devId), id, _TRUNCATE); CoTaskMemFree(id); }
     if (SUCCEEDED(IMMDevice_OpenPropertyStore(dev, STGM_READ, &ps)) && ps) {
@@ -185,7 +202,8 @@ static BOOL Acquire(void)
         IPropertyStore_Release(ps);
     }
     IMMDevice_Release(dev);
-    if (FAILED(hr) || !V.vol) { V.vol = NULL; Log(L"tray-vol: endpoint volume not available hr=0x%08lX", (unsigned long)hr); return FALSE; }
+    if (FAILED(hr) || !V.vol) { V.vol = NULL; LogFail(L"endpoint volume not available", hr); return FALSE; }
+    s_failLogged = FALSE;
     Log(L"tray-vol: device '%s'", V.devName[0] ? V.devName : L"(no name)");
     return TRUE;
 }
@@ -238,6 +256,17 @@ static void ToggleMute(void)
 
 /* ---------------------------------------------------------------- tray icon */
 
+/* small icon size at the CURRENT DPI of the main display (the tray window sits there) */
+static int IconSize(void)
+{
+    typedef int (WINAPI *Fn)(int, UINT);
+    static Fn f = NULL;
+    static BOOL tried = FALSE;
+    UINT dpi = V.hwnd ? WindowDpi(V.hwnd) : 96;
+    if (!tried) { HMODULE u = GetModuleHandleW(L"user32.dll"); f = u ? (Fn)(void *)GetProcAddress(u, "GetSystemMetricsForDpi") : NULL; tried = TRUE; }
+    return f && dpi ? f(SM_CXSMICON, dpi) : GetSystemMetrics(SM_CXSMICON);
+}
+
 /* volume window controls from the current state: "<device>  45%", Mute/Unmute, slider (not while being dragged) */
 static void FlyoutControls(BOOL slider)
 {
@@ -259,10 +288,11 @@ static void TrayUpdate(BOOL force)
     if (!force && V.added && oldLevel == V.level && oldMuted == V.muted) return;
     {   /* the icon only changes with the number of waves / mute / no device */
         int shown = V.level < 0 ? -1 : (V.level == 0 ? 0 : (V.level <= 50 ? 1 : 2));
-        if (!V.icon || V.iconLevel != shown || V.iconMuted != (int)V.muted) {
+        int sz = IconSize();   /* current DPI: a live scale change gives a new size (GetSystemMetrics = start DPI) */
+        if (!V.icon || V.iconLevel != shown || V.iconMuted != (int)V.muted || V.iconSize != sz) {
             HICON old = V.icon;
-            V.icon = MakeVolIcon(V.level < 0 ? -1 : (shown == 0 ? 0 : (shown == 1 ? 40 : 80)), V.muted, GetSystemMetrics(SM_CXSMICON));
-            V.iconLevel = shown; V.iconMuted = V.muted;
+            V.icon = MakeVolIcon(V.level < 0 ? -1 : (shown == 0 ? 0 : (shown == 1 ? 40 : 80)), V.muted, sz);
+            V.iconLevel = shown; V.iconMuted = V.muted; V.iconSize = sz;
             if (old) DestroyIcon(old);
         }
     }
@@ -271,7 +301,7 @@ static void TrayUpdate(BOOL force)
     nd.uFlags = NIF_ICON | NIF_TIP | NIF_MESSAGE; nd.uCallbackMessage = WM_TVCB; nd.hIcon = V.icon;
     if (V.level < 0) wcscpy_s(nd.szTip, _countof(nd.szTip), L"No audio output device");
     else _snwprintf_s(nd.szTip, _countof(nd.szTip), _TRUNCATE, L"%s: %d%%%s", V.devName[0] ? V.devName : L"Speakers", V.level, V.muted ? L" (muted)" : L"");
-    if (V.fly && IsWindowVisible(V.fly)) FlyoutControls(GetFocus() != V.slider);   /* keep the open window in step */
+    if (V.fly && IsWindowVisible(V.fly)) FlyoutControls(!V.dragging);   /* keep the open window in step (volume keys, mixer) */
     if (V.added && Shell_NotifyIconW(NIM_MODIFY, &nd)) return;
     if (Shell_NotifyIconW(NIM_ADD, &nd)) { if (!V.added) Log(L"tray-vol: icon added (%s %d%%%s)", V.devName, V.level, V.muted ? L" muted" : L""); V.added = TRUE; }
     else { if (V.added || GetTickCount() - V.lastAddTry > 30000) Log(L"tray-vol: Shell_NotifyIcon NIM_ADD failed err=%lu (no tray yet?) - retrying", GetLastError()); V.added = FALSE; V.lastAddTry = GetTickCount(); }
@@ -299,12 +329,14 @@ static HWND s_mixerBtn;
 
 static void LayoutFlyout(int w, int h)
 {
-    if (V.font) DeleteObject(V.font);
+    /* new font first, old one deleted only after the controls dropped it */
+    HFONT old = V.font;
     V.font = CreateFontW(-VS(12), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
                          CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Segoe UI");
     SendMessageW(V.label, WM_SETFONT, (WPARAM)V.font, FALSE);
     SendMessageW(V.muteBtn, WM_SETFONT, (WPARAM)V.font, FALSE);
     SendMessageW(s_mixerBtn, WM_SETFONT, (WPARAM)V.font, FALSE);
+    if (old) DeleteObject(old);
     MoveWindow(V.label, VS(12), VS(10), w - VS(24), VS(20), FALSE);
     MoveWindow(V.slider, VS(6), VS(32), w - VS(12), VS(30), FALSE);
     MoveWindow(V.muteBtn, VS(12), h - VS(34), VS(90), VS(26), FALSE);
@@ -323,6 +355,8 @@ static void ShowFlyout(void)
     GetCursorPos(&pt);
     mi.cbSize = sizeof(mi);
     GetMonitorInfoW(MonitorFromPoint(pt, MONITOR_DEFAULTTONEAREST), &mi);
+    /* move the (hidden) window onto that monitor first: its DPI is the one of the monitor it is on */
+    SetWindowPos(V.fly, NULL, mi.rcWork.left, mi.rcWork.top, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
     V.s = WindowDpi(V.fly) / 96.0;
     w = VS(300); h = VS(104);
     x = pt.x - w / 2; y = mi.rcWork.bottom - h - VS(8);   /* above the taskbar, centered on the click */
@@ -348,6 +382,9 @@ static LRESULT CALLBACK FlyProc(HWND h, UINT m, WPARAM wp, LPARAM lp)
     case WM_HSCROLL:
         if ((HWND)lp == V.slider) {
             int pos = (int)SendMessageW(V.slider, TBM_GETPOS, 0, 0);
+            /* while the thumb is dragged the slider is not moved by outside changes */
+            if (LOWORD(wp) == TB_THUMBTRACK) V.dragging = TRUE;
+            else if (LOWORD(wp) == TB_ENDTRACK || LOWORD(wp) == TB_THUMBPOSITION) V.dragging = FALSE;
             SetLevel(pos);
             TrayUpdate(FALSE);
         }
@@ -402,7 +439,8 @@ static void TrayMenu(void)
 
 static LRESULT CALLBACK TrayVolProc(HWND h, UINT m, WPARAM wp, LPARAM lp)
 {
-    if (m == V.taskbarCreated && m) { Log(L"tray-vol: TaskbarCreated - re-adding the icon"); V.added = FALSE; TrayUpdate(TRUE); return 0; }
+    /* new taskbar (shell restart, e.g. after a scale change): rebuild the icon at the current DPI and re-add it */
+    if (m == V.taskbarCreated && m) { Log(L"tray-vol: TaskbarCreated - re-adding the icon"); V.added = FALSE; V.iconLevel = -9; TrayUpdate(TRUE); return 0; }
     switch (m) {
     case WM_TIMER:
         TrayUpdate(FALSE);
@@ -433,6 +471,7 @@ int VolTray(void)
     INITCOMMONCONTROLSEX icc;
     MSG msg;
     HINSTANCE hi = GetModuleHandleW(NULL);
+    int rc = 1;
     if (mutex && GetLastError() == ERROR_ALREADY_EXISTS) { Log(L"tray-vol: already running"); CloseHandle(mutex); return 0; }
     CoInitializeEx(NULL, COINIT_APARTMENTTHREADED);
     icc.dwSize = sizeof(icc); icc.dwICC = ICC_BAR_CLASSES;
@@ -441,15 +480,15 @@ int VolTray(void)
     V.level = -2; V.iconLevel = -9; V.iconMuted = -1; V.s = 1.0;
     ZeroMemory(&wc, sizeof(wc));
     wc.cbSize = sizeof(wc); wc.lpfnWndProc = TrayVolProc; wc.hInstance = hi; wc.lpszClassName = TV_CLASS;
-    if (!RegisterClassExW(&wc)) { Log(L"tray-vol: RegisterClass failed err=%lu", GetLastError()); return 1; }
+    if (!RegisterClassExW(&wc)) { Log(L"tray-vol: RegisterClass failed err=%lu", GetLastError()); goto done; }
     wc.lpfnWndProc = FlyProc; wc.lpszClassName = TV_FLYOUT; wc.hbrBackground = (HBRUSH)(COLOR_BTNFACE + 1);
     wc.hCursor = LoadCursorW(NULL, (LPCWSTR)IDC_ARROW); wc.style = CS_DROPSHADOW;
-    if (!RegisterClassExW(&wc)) { Log(L"tray-vol: RegisterClass (window) failed err=%lu", GetLastError()); return 1; }
+    if (!RegisterClassExW(&wc)) { Log(L"tray-vol: RegisterClass (window) failed err=%lu", GetLastError()); goto done; }
     V.taskbarCreated = RegisterWindowMessageW(L"TaskbarCreated");
     /* hidden top-level window (TaskbarCreated is broadcast to top-level windows only) */
     V.hwnd = CreateWindowExW(WS_EX_TOOLWINDOW, TV_CLASS, L"MyPE volume", WS_POPUP, 0, 0, 0, 0, NULL, NULL, hi, NULL);
     V.fly = CreateWindowExW(WS_EX_TOOLWINDOW | WS_EX_TOPMOST, TV_FLYOUT, L"Volume", WS_POPUP | WS_BORDER, 0, 0, 300, 104, NULL, NULL, hi, NULL);
-    if (!V.hwnd || !V.fly) { Log(L"tray-vol: CreateWindow failed err=%lu", GetLastError()); return 1; }
+    if (!V.hwnd || !V.fly) { Log(L"tray-vol: CreateWindow failed err=%lu", GetLastError()); goto done; }
     V.label = CreateWindowExW(0, L"STATIC", L"", WS_CHILD | WS_VISIBLE | SS_LEFT | SS_NOPREFIX, 0, 0, 10, 10, V.fly, (HMENU)(INT_PTR)IDC_V_LABEL, hi, NULL);
     V.slider = CreateWindowExW(0, TRACKBAR_CLASSW, L"", WS_CHILD | WS_VISIBLE | WS_TABSTOP | TBS_HORZ | TBS_NOTICKS, 0, 0, 10, 10, V.fly, (HMENU)(INT_PTR)IDC_V_SLIDER, hi, NULL);
     V.muteBtn = CreateWindowExW(0, L"BUTTON", L"Mute", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON, 0, 0, 10, 10, V.fly, (HMENU)(INT_PTR)IDC_V_MUTE, hi, NULL);
@@ -461,9 +500,13 @@ int VolTray(void)
     TrayUpdate(TRUE);
     SetTimer(V.hwnd, 1, 500, NULL);
     while (GetMessageW(&msg, NULL, 0, 0) > 0) { TranslateMessage(&msg); DispatchMessageW(&msg); }
+    rc = 0;
+done:   /* every exit: COM, the endpoint, the mutex */
     ReleaseDevice();
-    if (V.en) IMMDeviceEnumerator_Release(V.en);
+    if (V.en) { IMMDeviceEnumerator_Release(V.en); V.en = NULL; }
+    if (V.icon) { DestroyIcon(V.icon); V.icon = NULL; }
+    if (V.font) { DeleteObject(V.font); V.font = NULL; }
     CoUninitialize();
     if (mutex) { ReleaseMutex(mutex); CloseHandle(mutex); }
-    return 0;
+    return rc;
 }

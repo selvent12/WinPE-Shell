@@ -169,11 +169,22 @@ static std::vector<std::wstring> ExtraFolderPatterns()
     return v;
 }
 
+// JS_STARTMENU.extra_folders_marker (e.g. "MyPE\\mype-stick"): a "*:\" pattern only matches drives that contain this
+// file - the boot stick - so the internal disk of the PC being examined cannot add Start menu entries (they would run
+// with the shell's rights). Empty = every fixed / removable drive (the previous behaviour).
+static std::wstring ExtraFolderMarker()
+{
+    std::wstring m = JCFG2_DEF("JS_STARTMENU", "extra_folders_marker", TEXT("")).ToString(std::wstring());
+    while (!m.empty() && (m[0] == L'\\' || m[0] == L'/')) m.erase(0, 1);
+    return m;
+}
+
 static DWORD WINAPI ExtraScanThread(LPVOID)
 {
     UINT oldMode = SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOOPENFILEERRORBOX);
     Node tree;
     tree.folder = true;
+    std::wstring marker = ExtraFolderMarker();
     for (const std::wstring &pat : ExtraFolderPatterns()) {
         std::vector<std::wstring> dirs;
         if (pat.size() >= 3 && pat[0] == L'*' && pat[1] == L':' && pat[2] == L'\\') {
@@ -183,8 +194,11 @@ static DWORD WINAPI ExtraScanThread(LPVOID)
                     continue;
                 wchar_t root[4] = {(wchar_t)(L'A' + d), L':', L'\\', 0};
                 UINT t = GetDriveTypeW(root);
-                if (t == DRIVE_FIXED || t == DRIVE_REMOVABLE || t == DRIVE_RAMDISK)
-                    dirs.push_back(std::wstring(root, 2) + pat.substr(2));
+                if (t != DRIVE_FIXED && t != DRIVE_REMOVABLE && t != DRIVE_RAMDISK)
+                    continue;
+                if (!marker.empty() && GetFileAttributesW((std::wstring(root) + marker).c_str()) == INVALID_FILE_ATTRIBUTES)
+                    continue;                           // not the boot stick
+                dirs.push_back(std::wstring(root, 2) + pat.substr(2));
             }
         } else
             dirs.push_back(pat);

@@ -1,5 +1,5 @@
 /*
- * display.c - MyPE "Display" window (docs/FEATURES.md). Own code, plain Win32/GDI, per-monitor DPI aware.
+ * display.c - MyPE "Display" window (README.md). Own code, plain Win32/GDI, per-monitor DPI aware.
  *
  *   MyPEUI.exe open display [/select N]      (also ms-settings:display, ms-settings:screenrotation)
  *

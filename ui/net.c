@@ -1,5 +1,5 @@
 /*
- * net.c - MyPE network control (docs/FEATURES.md: network OFF at boot, started manually). Own code, Win32 only.
+ * net.c - MyPE network control (README.md: network OFF at boot, started manually). Own code, Win32 only.
  *
  *   MyPEUI.exe net on|off|toggle|status [/quiet] [/boot]
  *   MyPEUI.exe tray-net                  tray icon (single instance): OFF / ON / connected

@@ -1,5 +1,5 @@
 /*
- * MyPEUI.exe - small MyPE UI utility (docs/FEATURES.md). Own code, no third-party parts.
+ * MyPEUI.exe - small MyPE UI utility (README.md). Own code, no third-party parts.
  * GUI subsystem, static CRT, Win32/GDI only. Sources: MyPEUI.c, display.c, dispcfg.c, brightness.c, net.c (mypeui.h).
  *
  *   MyPEUI.exe shutdown [/dryrun]       shutdown dialog (keyboard focus on Power)
