@@ -58,6 +58,8 @@ Screenshots: WinPE 26H2 in a VM at 150 % scale (`"style": "win11"`, the right co
 | `WinPE-ShellUI tray-net` | Network icon in the tray |
 | `WinPE-ShellUI tray-vol` | Volume icon in the tray |
 | `WinPE-ShellUI scale <percent> [/norestart]` | Live display scale on every display (restarts the shell if it changed) |
+| `WinPE-ShellUI calendar` | Calendar above the clock: time, long date, month view (Esc or a click elsewhere closes it) |
+| `WinPE-ShellUI snip [/now]` | Snipping tool: New (rectangular / full-screen snip), Save As (PNG, JPEG, BMP), Copy; the snip goes to the clipboard. `/now` = snip at once (Print Screen) |
 
 **Display window**: monitors drawn by their real position; Extend / Duplicate / only display N; per display
 resolution, refresh rate, orientation, main display; every change with a 15 s "Keep changes?" countdown and automatic
@@ -148,6 +150,13 @@ Releases: a tag `v*` runs `.github/workflows/release.yml`, which builds the same
   `parameters`, `text`, `hide`. URI commands are started with the protocol class.
 - `JS_TASKBAR.style`: `"classic"` (default) or `"win11"`; `align` (win11): `"left"` (default) or `"center"`;
   `smallicon` as a number = icon size (96 DPI). Values are case-insensitive and read once at start.
+- `JS_TASKBAR.clock_command` `{ "command", "parameters" }`: run on a click on the clock (e.g. `WinPE-ShellUI.exe
+  calendar`); without it a double click opens the Date and Time panel.
+- `JS_HOTKEY.printscreen` `{ "command", "parameters" }`: Print Screen runs it (e.g. `WinPE-ShellUI.exe snip /now`);
+  the key is registered only when a command is set.
+- `JS_DESKTOP.restart_on_resolution_change` (default `true`): when the main display's resolution changes (Display
+  window, or a program that switches the mode itself), the shell restarts after 2 s so desktop and taskbar icons are
+  redrawn at the new size.
 - `JS_STARTMENU.style`: `"classic"` (default), `"win7"` (two columns) or `"win11"` (same menu, Windows 11 look:
   search on top, rounded corners, floating, centered with `align: center`).
   - `win7.pinned`: left column (names as in All Programs, `Folder\\Name`); default = shortcuts directly in Programs.
@@ -231,6 +240,8 @@ Base: PExplorer branch `WinXShell_shellpart` @ `5f8b886` (2018-08-19).
   `HKLM\SOFTWARE\WinPE-Shell\Network`; window classes / mutexes `WinPE-Shell.*`; wallpaper list.
 - **16** Public release preparation: neutral internal names (`ShellStress`, `ShellDump`, `WPS_*` identifiers), the
   boot-stick paths of `Set-DisplayLayout.ps1` as parameters, current screenshots, release workflow.
+- **17** Fixes from a test on real hardware: calendar on a clock click, snipping tool + Print Screen, shell restart
+  after a resolution change, the Display window scrolls when it does not fit the screen (low resolution).
 
 ## 7. License and credits
 - Shell (`src/`): GNU LGPL 2.1 or later, as the upstream sources. Descends from the **ReactOS Explorer** (Copyright the

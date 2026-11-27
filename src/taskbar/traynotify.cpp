@@ -1370,8 +1370,15 @@ LRESULT ClockWindow::WndProc(UINT nmsg, WPARAM wparam, LPARAM lparam)
         Paint();
         break;
 
+    case WM_LBUTTONUP:
+        // JS_TASKBAR.clock_command { "command", "parameters" }: a click opens it (e.g. a calendar); without one the
+        // upstream double click below still opens the Date and Time panel
+        WpsRunConfigured(_hwnd, TEXT("JS_TASKBAR"), TEXT("clock_command"));
+        break;
+
     case WM_LBUTTONDBLCLK:
-        launch_cpanel(_hwnd, TEXT("timedate.cpl"));
+        if (JCFG3_DEF("JS_TASKBAR", "clock_command", "command", TEXT("")).ToString().empty())
+            launch_cpanel(_hwnd, TEXT("timedate.cpl"));
         break;
 
     default:

@@ -640,7 +640,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE hPrev, LPWSTR cmdLine, int nShow)
     SetDpiAware();
     g_argc = argc; g_argv = argv;
     if (!argv || argc < 2) {
-        Message(L"WinPE-ShellUI.exe shutdown|restart [/dryrun]\nWinPE-ShellUI.exe uri <uri>\nWinPE-ShellUI.exe open display [/select N] | network | sysinfo\nWinPE-ShellUI.exe net on|off|toggle|status [/quiet]\nWinPE-ShellUI.exe tray-net\nWinPE-ShellUI.exe tray-vol\nWinPE-ShellUI.exe scale <percent> [/norestart]");
+        Message(L"WinPE-ShellUI.exe shutdown|restart [/dryrun]\nWinPE-ShellUI.exe uri <uri>\nWinPE-ShellUI.exe open display [/select N] | network | sysinfo\nWinPE-ShellUI.exe net on|off|toggle|status [/quiet]\nWinPE-ShellUI.exe tray-net\nWinPE-ShellUI.exe tray-vol\nWinPE-ShellUI.exe scale <percent> [/norestart]\nWinPE-ShellUI.exe calendar\nWinPE-ShellUI.exe snip");
         if (argv) LocalFree(argv);
         return 2;
     }
@@ -655,6 +655,8 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE hPrev, LPWSTR cmdLine, int nShow)
     else if (!_wcsicmp(cmd, L"tray-net")) rc = NetTray();
     else if (!_wcsicmp(cmd, L"scale")) rc = ScaleCommand(argc, argv);
     else if (!_wcsicmp(cmd, L"tray-vol")) rc = VolTray();
+    else if (!_wcsicmp(cmd, L"calendar")) rc = CalendarWindow();
+    else if (!_wcsicmp(cmd, L"snip")) rc = SnipCommand(argc, argv);
     else if (!_wcsnicmp(cmd, L"ms-settings:", 12) || !_wcsnicmp(cmd, L"ms-availablenetworks:", 21)) rc = HandleUri(cmd);
     else { Log(L"unknown command '%s'", cmd); Message(L"WinPE-ShellUI: unknown command '%s'.", cmd); rc = 2; }
     LocalFree(argv);

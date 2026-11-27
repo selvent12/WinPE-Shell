@@ -53,6 +53,7 @@ typedef struct { DWORD w, h, hz; int rot; BOOL primary; } Pend;
 static struct {
     HWND hwnd, confirm;
     HINSTANCE hi;
+    int scrollY, contentH;      /* vertical scroll (pixels) when the window does not fit the monitor (PC test 2026-11-27) */
     DcState st;
     Pend pend[DC_MAXMON];
     int sel;
@@ -1028,16 +1029,18 @@ static void CreateFonts(void)
 
 static BOOL CALLBACK SetFontCb(HWND c, LPARAM lp) { SendMessageW(c, WM_SETFONT, (WPARAM)lp, TRUE); return TRUE; }
 
-static void Place(int id, int x, int y, int w, int h) { SetWindowPos(Ctl(id), NULL, S(x), S(y), S(w), S(h), SWP_NOZORDER | SWP_NOACTIVATE); }
+static void Place(int id, int x, int y, int w, int h) { SetWindowPos(Ctl(id), NULL, S(x), S(y) - g.scrollY, S(w), S(h), SWP_NOZORDER | SWP_NOACTIVATE); }
 
 static int ClientWidth(void) { return 580; }
 
 static void Layout(void)
 {
     const int M = 16, LW = 150, CX = M + LW + 8, RH = 34;
-    int W = ClientWidth(), y, cw;
+    int W = ClientWidth(), y, cw, ncW, ncH, maxClient, clientH, sbW;
     RECT wr, cr;
-    SetRect(&g.map, S(M), S(12), S(W - M), S(12 + 170));
+    MONITORINFO mi;
+    SCROLLINFO si;
+    SetRect(&g.map, S(M), S(12) - g.scrollY, S(W - M), S(12 + 170) - g.scrollY);
     y = 190;
     Place(IDC_INFO, M, y, W - 2 * M, 20); y += 30;
     Place(IDC_L_MODE, M, y + 4, LW, 20); Place(IDC_MODE, CX, y, 260, 300); y += RH;
@@ -1057,11 +1060,44 @@ static void Layout(void)
     Place(IDC_APPLY, W - M - 2 * cw - 8, y, cw, 30);
     Place(IDC_CLOSE, W - M - cw, y, cw, 30);
     y += 30 + 14;
-    /* window height follows the content (brightness row shown / hidden) */
+    /* window height follows the content (brightness row shown / hidden), but never taller than the monitor's work
+       area: at a low resolution (1024x768 at 150 %) the buttons were below the screen (PC test 2026-11-27) -> then
+       a vertical scroll bar (and the mouse wheel) */
+    g.contentH = S(y);
     GetWindowRect(g.hwnd, &wr); GetClientRect(g.hwnd, &cr);
-    if (cr.bottom != S(y) || cr.right != S(W))
-        SetWindowPos(g.hwnd, NULL, 0, 0, (wr.right - wr.left) - cr.right + S(W), (wr.bottom - wr.top) - cr.bottom + S(y), SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
+    ncW = (wr.right - wr.left) - cr.right; ncH = (wr.bottom - wr.top) - cr.bottom;
+    if (GetWindowLongPtrW(g.hwnd, GWL_STYLE) & WS_VSCROLL) ncW -= GetSystemMetrics(SM_CXVSCROLL);   /* client w/o bar */
+    mi.cbSize = sizeof(mi);
+    GetMonitorInfoW(MonitorFromWindow(g.hwnd, MONITOR_DEFAULTTONEAREST), &mi);
+    maxClient = (mi.rcWork.bottom - mi.rcWork.top) - ncH;
+    clientH = g.contentH <= maxClient ? g.contentH : maxClient;
+    sbW = g.contentH > clientH ? GetSystemMetrics(SM_CXVSCROLL) : 0;
+    if (g.scrollY > g.contentH - clientH) g.scrollY = max(0, g.contentH - clientH);
+    ShowScrollBar(g.hwnd, SB_VERT, sbW > 0);
+    ZeroMemory(&si, sizeof(si));
+    si.cbSize = sizeof(si); si.fMask = SIF_RANGE | SIF_PAGE | SIF_POS | SIF_DISABLENOSCROLL;
+    si.nMin = 0; si.nMax = g.contentH - 1; si.nPage = (UINT)clientH; si.nPos = g.scrollY;
+    if (sbW) SetScrollInfo(g.hwnd, SB_VERT, &si, TRUE);
+    GetWindowRect(g.hwnd, &wr); GetClientRect(g.hwnd, &cr);
+    if (cr.bottom != clientH || cr.right != S(W)) {
+        int ww = ncW + sbW + S(W), wh = ncH + clientH, x = wr.left, yy = wr.top;
+        if (yy + wh > mi.rcWork.bottom) yy = mi.rcWork.bottom - wh;   /* keep it on the screen */
+        if (yy < mi.rcWork.top) yy = mi.rcWork.top;
+        if (x + ww > mi.rcWork.right) x = max(mi.rcWork.left, mi.rcWork.right - ww);
+        SetWindowPos(g.hwnd, NULL, x, yy, ww, wh, SWP_NOZORDER | SWP_NOACTIVATE);
+    }
     InvalidateRect(g.hwnd, NULL, TRUE);
+}
+
+static void ScrollTo(int pos)
+{
+    RECT cr;
+    GetClientRect(g.hwnd, &cr);
+    pos = min(pos, g.contentH - cr.bottom);
+    if (pos < 0) pos = 0;
+    if (pos == g.scrollY) return;
+    g.scrollY = pos;
+    Layout();
 }
 
 static void MakeControls(HWND h)
@@ -1170,6 +1206,25 @@ static LRESULT CALLBACK DisplayProc(HWND h, UINT m, WPARAM wp, LPARAM lp)
     case WM_COMMAND:
         OnCommand(LOWORD(wp), HIWORD(wp));
         return 0;
+    case WM_VSCROLL: {
+        SCROLLINFO si; RECT cr; int pos = g.scrollY, line = S(34);
+        si.cbSize = sizeof(si); si.fMask = SIF_ALL; GetScrollInfo(h, SB_VERT, &si);
+        GetClientRect(h, &cr);
+        switch (LOWORD(wp)) {
+        case SB_LINEUP: pos -= line; break;
+        case SB_LINEDOWN: pos += line; break;
+        case SB_PAGEUP: pos -= cr.bottom; break;
+        case SB_PAGEDOWN: pos += cr.bottom; break;
+        case SB_THUMBTRACK: case SB_THUMBPOSITION: pos = si.nTrackPos; break;
+        case SB_TOP: pos = 0; break;
+        case SB_BOTTOM: pos = g.contentH; break;
+        }
+        ScrollTo(pos);
+        return 0;
+    }
+    case WM_MOUSEWHEEL:
+        ScrollTo(g.scrollY - GET_WHEEL_DELTA_WPARAM(wp) * S(34) / WHEEL_DELTA);
+        return 0;
     case WM_HSCROLL:
         if ((HWND)lp == Ctl(IDC_BRIGHT) && g.briOf[g.sel] >= 0) {
             int pos = (int)SendMessageW(Ctl(IDC_BRIGHT), TBM_GETPOS, 0, 0);
@@ -1202,6 +1257,7 @@ static LRESULT CALLBACK DisplayProc(HWND h, UINT m, WPARAM wp, LPARAM lp)
             KillTimer(h, TM_REQUERY);
             if (!g.busy) {
                 Requery(L"display change");
+                Layout();   /* the work area may be smaller now: refit the window, scroll bar if needed */
                 if (!g.confirming) {   /* monitor handles changed: no brightness row until the new list arrives */
                     g.nbri = -1; MapBrightness(); UpdateBrightnessRow();
                     InterlockedExchange(&g.briReprobe, 1); SetEvent(g.briEvent);

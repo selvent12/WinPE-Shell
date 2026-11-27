@@ -50,4 +50,10 @@ int NetWindow(const wchar_t *uri);
 /* vol.c: volume tray icon ("tray-vol") */
 int VolTray(void);
 
+/* calendar.c: calendar flyout above the clock ("calendar") */
+int CalendarWindow(void);
+
+/* snip.c: Snipping-Tool-like window ("snip", "snip /now": snip at once) */
+int SnipCommand(int argc, wchar_t **argv);
+
 #endif

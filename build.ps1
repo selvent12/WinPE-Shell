@@ -51,8 +51,8 @@ if ($LASTEXITCODE) { throw "MSBuild failed ($LASTEXITCODE), see $log" }
 
 # ---- 2) UI utility + test tools (cl) ----
 & cmd.exe /d /c "`"$vcvars`" >nul 2>nul && set" | ForEach-Object { if ($_ -match '^([^=]+)=(.*)$') { Set-Item "env:$($Matches[1])" $Matches[2] } }
-$uiSrc = 'shellui.c', 'display.c', 'dispcfg.c', 'brightness.c', 'net.c', 'scale.c', 'vol.c' | ForEach-Object { Join-Path $PSScriptRoot "ui\$_" }
-$uiLibs = 'kernel32.lib', 'user32.lib', 'gdi32.lib', 'shell32.lib', 'advapi32.lib', 'comctl32.lib', 'ole32.lib', 'oleaut32.lib', 'wbemuuid.lib', 'iphlpapi.lib', 'setupapi.lib', 'cfgmgr32.lib', 'newdev.lib', 'dnsapi.lib'
+$uiSrc = 'shellui.c', 'display.c', 'dispcfg.c', 'brightness.c', 'net.c', 'scale.c', 'vol.c', 'calendar.c', 'snip.c' | ForEach-Object { Join-Path $PSScriptRoot "ui\$_" }
+$uiLibs = 'kernel32.lib', 'user32.lib', 'gdi32.lib', 'shell32.lib', 'advapi32.lib', 'comctl32.lib', 'ole32.lib', 'oleaut32.lib', 'wbemuuid.lib', 'iphlpapi.lib', 'setupapi.lib', 'cfgmgr32.lib', 'newdev.lib', 'dnsapi.lib', 'msimg32.lib', 'gdiplus.lib', 'comdlg32.lib'
 Push-Location "$Out\ui"
 try {
     Get-ChildItem -Filter *.obj | Remove-Item -Force

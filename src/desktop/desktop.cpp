@@ -410,6 +410,10 @@ void DesktopWindow::RegisterHotkeys(BOOL unreg)
     if (g_Globals._hwndDesktopBar == (HWND)0) {
         AUTOREGISTERHOTKEY(unreg, _hwnd, IDHK_DESKTOP, MOD_WIN, 'D');
     }
+    // Print Screen runs JS_HOTKEY.printscreen (e.g. a screen snip tool); only when one is configured
+    if (!JCFG3_DEF("JS_HOTKEY", "printscreen", "command", TEXT("")).ToString().empty()) {
+        AUTOREGISTERHOTKEY(unreg, _hwnd, IDHK_PRINTSCREEN, 0, VK_SNAPSHOT);
+    }
     ///@todo register all common hotkeys
 }
 
@@ -430,6 +434,10 @@ void DesktopWindow::ProcessHotKey(int id_hotkey)
 
     case IDHK_DESKTOP:
          g_Globals._desktop.ToggleMinimize();
+        break;
+
+    case IDHK_PRINTSCREEN:
+        WpsRunConfigured(_hwnd, TEXT("JS_HOTKEY"), TEXT("printscreen"));
         break;
     //@todo implement all common hotkeys
     }
@@ -574,12 +582,32 @@ LRESULT DesktopWindow::WndProc(UINT nmsg, WPARAM wparam, LPARAM lparam)
         ProcessHotKey((int)wparam);
         break;
 
-    case WM_DISPLAYCHANGE:
+    case WM_DISPLAYCHANGE: {
         MoveWindow(_hwnd, 0, 0, LOWORD(lparam), HIWORD(lparam), TRUE);
         MoveWindow(g_Globals._hwndShellView, 0, 0, LOWORD(lparam), HIWORD(lparam), TRUE);
         MoveWindow(_desktopBar, 0, HIWORD(lparam) - DESKTOPBARBAR_HEIGHT, LOWORD(lparam), DESKTOPBARBAR_HEIGHT, TRUE);
         SendMessage(g_Globals._hwndShellView, WM_DISPLAYCHANGE, LOWORD(lparam), HIWORD(lparam));
+        // a resolution change of the main display (Display window, or a program that switches the mode itself)
+        // leaves black squares in the icons of the desktop and the taskbar (PC test 2026-11-27, 4K -> Full HD);
+        // a shell restart redraws them. Debounced: several changes in a row (a layout apply) give one restart.
+        static LPARAM s_lastSize = 0;
+        if (!s_lastSize) s_lastSize = MAKELPARAM(GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN));
+        if (lparam != s_lastSize && JCFG2_DEF("JS_DESKTOP", "restart_on_resolution_change", true).ToBool()) {
+            _log_(FmtString(TEXT("WinPE-Shell: resolution %ux%u -> %ux%u, shell restart in 2 s"),
+                            LOWORD(s_lastSize), HIWORD(s_lastSize), LOWORD(lparam), HIWORD(lparam)));
+            SetTimer(_hwnd, ID_TIMER_RES_RESTART, 2000, NULL);
+        }
+        s_lastSize = lparam;
         break;
+    }
+
+    case WM_TIMER:
+        if (wparam == ID_TIMER_RES_RESTART) {
+            KillTimer(_hwnd, ID_TIMER_RES_RESTART);
+            if (!g_restart_requested) PostMessage(_hwnd, PM_WPS_RESTART_SHELL, 0, 0);
+            return 0;
+        }
+        return super::WndProc(nmsg, wparam, lparam);
 
     case WM_GETISHELLBROWSER:
         return (LRESULT)static_cast<IShellBrowser *>(this);
@@ -1409,14 +1437,23 @@ static void RunShellMenu(HWND hwnd, UINT id)
     TCHAR desktop[MAX_PATH] = { 0 };
     if (!SHGetSpecialFolderPath(hwnd, desktop, CSIDL_DESKTOPDIRECTORY, TRUE))
         desktop[0] = TEXT('\0');
+    // "Open command window here" = the Desktop folder
+    WpsRunCommand(hwnd, cmd, params, desktop[0] ? desktop : NULL, FmtString(TEXT("desktop menu '%s'"), it->key));
+}
 
+// Runs a configured command (desktop menu, JS_HOTKEY.printscreen, JS_TASKBAR.clock_command): a program with
+// parameters, or a URI ("ms-settings:display"). Logs and shows a message box when it cannot be started.
+bool WpsRunCommand(HWND hwnd, const string_t &cmd, const string_t &params, const TCHAR *dir, const string_t &what)
+{
+    if (cmd.empty())
+        return false;
     SHELLEXECUTEINFO sei = { 0 };
     sei.cbSize = sizeof(sei);
     sei.fMask = SEE_MASK_FLAG_NO_UI | SEE_MASK_NOASYNC;
     sei.hwnd = hwnd;
     sei.lpFile = cmd.c_str();
     sei.lpParameters = params.empty() ? NULL : params.c_str();
-    sei.lpDirectory = desktop[0] ? desktop : NULL;   // "Open command window here" = the Desktop folder
+    sei.lpDirectory = dir;
     sei.nShow = SW_SHOWNORMAL;
     // URI commands ("ms-settings:display"): pass the scheme as class. In WinPE, ShellExecuteEx with a bare URI goes
     // through the URL parser, which needs the Internet Shortcut handler (ieframe.dll, not in the image) and fails;
@@ -1430,10 +1467,22 @@ static void RunShellMenu(HWND hwnd, UINT id)
     }
     if (!ShellExecuteEx(&sei)) {
         DWORD err = GetLastError();
-        _log_(FmtString(TEXT("WinPE-Shell: desktop menu '%s' failed (%lu): %s %s"), it->key, err, cmd.c_str(), params.c_str()));
+        _log_(FmtString(TEXT("WinPE-Shell: %s failed (%lu): %s %s"), what.c_str(), err, cmd.c_str(), params.c_str()));
         MessageBox(hwnd, FmtString(TEXT("Could not start:\n%s %s\n\nError %lu."), cmd.c_str(), params.c_str(), err),
                    ResString(IDS_TITLE), MB_OK | MB_ICONERROR);
+        return false;
     }
+    return true;
+}
+
+// a { "command": "...", "parameters": "..." } object of the configuration (JS_HOTKEY.printscreen, ...)
+bool WpsRunConfigured(HWND hwnd, const TCHAR *section, const TCHAR *key)
+{
+    string_t cmd = JCfg_GetValue(&g_JCfg, section, key, TEXT("command"), Value(TEXT(""))).ToString();
+    if (cmd.empty())
+        return false;
+    string_t params = JCfg_GetValue(&g_JCfg, section, key, TEXT("parameters"), Value(TEXT(""))).ToString();
+    return WpsRunCommand(hwnd, cmd, params, NULL, FmtString(TEXT("%s.%s"), section, key));
 }
 
 HRESULT DesktopShellView::DoDesktopContextMenu(int x, int y)

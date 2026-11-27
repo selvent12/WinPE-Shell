@@ -53,6 +53,11 @@
 #define WPS_SHELL_EXIT_TIMEOUT 8000            // ms: clean exit for "Restart shell", then TerminateProcess
 #define WPS_EXIT_RESTART_REQUESTED 0x7F04      // process exit code after a requested restart (guard: 0x7F05)
 extern bool g_restart_requested;
+// configured commands: a program + parameters or a URI (desktop menu, JS_HOTKEY.printscreen, JS_TASKBAR.clock_command)
+bool WpsRunCommand(HWND hwnd, const string_t &cmd, const string_t &params, const TCHAR *dir, const string_t &what);
+bool WpsRunConfigured(HWND hwnd, const TCHAR *section, const TCHAR *key);
+#define IDHK_PRINTSCREEN       5                // JS_HOTKEY.printscreen { "command", "parameters" }
+#define ID_TIMER_RES_RESTART   0x7F10           // resolution changed -> shell restart (JS_DESKTOP.restart_on_resolution_change)
 
 struct AM_DesktopShellWindow : public Window {
     typedef Window super;
