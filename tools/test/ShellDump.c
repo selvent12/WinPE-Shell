@@ -1,6 +1,6 @@
 /*
- * MyPEDump.exe - writes a minidump of a running process (own code, uses dbghelp.dll from Windows). Test images only.
- *   MyPEDump.exe <pid> <dumpfile> [full]
+ * ShellDump.exe - writes a minidump of a running process (own code, uses dbghelp.dll from Windows). Test images only.
+ *   ShellDump.exe <pid> <dumpfile> [full]
  * Default: threads + handles + unloaded modules (enough for stacks / hang analysis with cdb); "full" adds all memory.
  */
 #define WIN32_LEAN_AND_MEAN
@@ -17,7 +17,7 @@ int wmain(int argc, wchar_t **argv)
     HANDLE proc, file;
     MINIDUMP_TYPE type = (MINIDUMP_TYPE)(MiniDumpWithThreadInfo | MiniDumpWithHandleData | MiniDumpWithUnloadedModules |
                                          MiniDumpWithProcessThreadData | MiniDumpWithDataSegs);
-    if (argc < 3) { fwprintf(stderr, L"usage: MyPEDump <pid> <dumpfile> [full]\n"); return 2; }
+    if (argc < 3) { fwprintf(stderr, L"usage: ShellDump <pid> <dumpfile> [full]\n"); return 2; }
     pid = (DWORD)_wtoi(argv[1]);
     if (argc > 3 && _wcsicmp(argv[3], L"full") == 0) type = (MINIDUMP_TYPE)(type | MiniDumpWithFullMemory);
     proc = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ | PROCESS_DUP_HANDLE, FALSE, pid);

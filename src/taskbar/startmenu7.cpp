@@ -951,7 +951,7 @@ void StartMenu7::ShowShutdownMenu()
     switch (cmd) {
     case ID_SM7_RESTART:      RunCommand(L"::restart", L""); break;
     case ID_SM7_SHUTDOWN:     RunCommand(L"::shutdown", L""); break;
-    case ID_SM7_RESTARTSHELL: Hide(); PostMessage(g_Globals._hwndDesktop, PM_MYPE_RESTART_SHELL, 0, 0); break;
+    case ID_SM7_RESTARTSHELL: Hide(); PostMessage(g_Globals._hwndDesktop, PM_WPS_RESTART_SHELL, 0, 0); break;
     }
 }
 

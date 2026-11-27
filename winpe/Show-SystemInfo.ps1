@@ -2,8 +2,8 @@
 .SYNOPSIS
   Runs INSIDE the WinPE image: system information as text, shown in Notepad.
   Started by WinPE-ShellUI.exe open sysinfo (winpe-shellui.ini [features] sysinfo=<this script>): Start menu "System information",
-  desktop menu "System properties". Report: <base>\logs\sysinfo.txt (<base> = the folder above this script's bin\,
-  X:\MyPE in MyPE; also kept for later reading).
+  desktop menu "System properties". Report: <base>\logs\sysinfo.txt (<base> = the folder above this script's bin\;
+  also kept for later reading).
   Only reads (CIM/WMI, registry, Storage cmdlets); every section is independent: a failing source is reported, the rest
   still comes.
 #>

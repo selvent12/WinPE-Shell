@@ -12,7 +12,14 @@ no prebuilt third-party binaries are used.
 > Status: works in our own WinPE build (VMware; real hardware: AMD GPU with two monitors, Realtek Ethernet). No fixed
 > folder: every program finds its configuration and logs next to its own exe (`<exe dir>\config`, `<exe dir>\logs`).
 
-![Windows 7 style Start menu](docs/img/startmenu-win7-shutdown.png)
+![Start menu, Windows 11 look](docs/img/startmenu-win11.jpg)
+
+| All apps | Search | Shut down menu |
+|---|---|---|
+| ![All apps](docs/img/startmenu-win11-allapps.jpg) | ![Search](docs/img/startmenu-win11-search.jpg) | ![Shut down](docs/img/startmenu-win11-shutdown.jpg) |
+
+Screenshots: WinPE 26H2 in a VM at 150 % scale (`"style": "win11"`, the right column title comes from
+`win7.title`); desktop background: a CC0 / public domain photo.
 
 ## 1. Components
 
@@ -21,7 +28,7 @@ no prebuilt third-party binaries are used.
 | Shell | `src/` | `WinPE-Shell.exe` | Desktop, taskbar, Start menu, tray, desktop context menu |
 | UI utility | `ui/` | `WinPE-ShellUI.exe` | Shutdown dialog, Display window + live scale, network ON/OFF + Wi-Fi, volume icon, `ms-settings:` handler |
 | WinPE helpers | `winpe/` | `WinPE-ShellStart.exe`, `DisplayLayout.dll`, 2 scripts | Startup launcher + shell watchdog, display layout at boot, system information |
-| Test tools | `tools/test/` | `DlgTest`, `MyPEStress`, `MyPEDump`, `DpiTest` | Checks inside a test VM (optional) |
+| Test tools | `tools/test/` | `DlgTest`, `ShellStress`, `ShellDump`, `DpiTest` | Checks inside a test VM (optional) |
 
 ## 2. Features
 
@@ -76,7 +83,9 @@ Volume mixer, Sound settings); follows device changes and live scale changes.
 - **`DisplayLayout.dll`** (C#, P/Invoke only) + **`Set-DisplayLayout.ps1`**: at boot, waits for the GPU driver, sets
   Extend mode, the native resolution / refresh of every monitor, the main display and positions from `display.json`,
   falls back to one monitor on the Basic Display Adapter, then applies the default scale live (`WinPE-ShellUI scale`). A
-  `MyPE\config\display.json` on the boot stick (drive with the marker `MyPE\mype-stick`) overrides the scale.
+  `display.json` on the boot stick overrides the scale: `-StickMarker` (default `MyPE\mype-stick`, the same file as
+  `extra_folders_marker`) marks the stick, `-StickConfig` (default `MyPE\config\display.json`) is the file read there;
+  `-StickMarker ''` turns this off.
 - **`Show-SystemInfo.ps1`**: read-only system report (system, firmware / Secure Boot, CPU, memory modules, graphics,
   disks and volumes, network adapters) shown in Notepad; used as `sysinfo=` in `winpe-shellui.ini`.
 
@@ -100,6 +109,8 @@ keep an allowlist of hashes, re-approve after each build.
 
 CI: `.github/workflows/build.yml` runs the same `build.ps1 -TestTools` on a GitHub Windows runner (preinstalled
 VS 2022 + Windows SDK, read-only token, no extra downloads) and uploads the binaries with `build-sha256.csv`.
+Releases: a tag `v*` runs `.github/workflows/release.yml`, which builds the same way and attaches
+`WinPE-Shell-<tag>-x64.zip` (+ `.sha256`) and `build-sha256.csv` to a GitHub release.
 
 ## 4. Configuration
 
@@ -213,11 +224,13 @@ Base: PExplorer branch `WinXShell_shellpart` @ `5f8b886` (2018-08-19).
   volume icon.
 - **13** `extra_folders_marker` (boot stick only); volume icon: icon size follows live scale changes, the slider
   follows outside volume changes, logging limited, stale audio enumerator re-created.
-- **15** Names: `WinPE-Shell.exe` (+ `WinPE-Shell.jcfg`, `WinXShell.jcfg` still read), `WinPE-ShellUI.exe`,
-  `WinPE-ShellStart.exe`; configuration and logs relative to the exe folder; registry key
-  `HKLM\SOFTWARE\WinPE-Shell\Network`; window classes / mutexes `WinPE-Shell.*`.
 - **14** WinPE helpers moved here from the image builder: startup launcher / watchdog, display layout, system
   information (`winpe/`, built by `build.ps1`).
+- **15** Names: `WinPE-Shell.exe` (+ `WinPE-Shell.jcfg`, `WinXShell.jcfg` still read), `WinPE-ShellUI.exe`,
+  `WinPE-ShellStart.exe`; configuration and logs relative to the exe folder; registry key
+  `HKLM\SOFTWARE\WinPE-Shell\Network`; window classes / mutexes `WinPE-Shell.*`; wallpaper list.
+- **16** Public release preparation: neutral internal names (`ShellStress`, `ShellDump`, `WPS_*` identifiers), the
+  boot-stick paths of `Set-DisplayLayout.ps1` as parameters, current screenshots, release workflow.
 
 ## 7. License and credits
 - Shell (`src/`): GNU LGPL 2.1 or later, as the upstream sources. Descends from the **ReactOS Explorer** (Copyright the

@@ -44,7 +44,7 @@ static void dump_shell_namespace(ShellFolder &folder)
     do {
         ULONG cnt = 0;
 
-        HRESULT hr = (IEnumIDList *)enumerator ? enumerator->Next(1, &pidl, &cnt) : S_FALSE;   // MyPE: empty drive
+        HRESULT hr = (IEnumIDList *)enumerator ? enumerator->Next(1, &pidl, &cnt) : S_FALSE;   // WinPE-Shell: empty drive
 
         if (!SUCCEEDED(hr))
             break;

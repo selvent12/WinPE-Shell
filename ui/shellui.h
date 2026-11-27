@@ -31,7 +31,7 @@ const wchar_t *WpsPath(int which);
 #define WPS_MSG_TITLE L"WinPE-Shell"
 
 /* message the shell's desktop window (class Progman) understands: clean exit, WinPE-ShellStart restarts the shell
-   (desktop/desktop.h PM_MYPE_RESTART_SHELL) */
+   (desktop/desktop.h PM_WPS_RESTART_SHELL) */
 #define WPS_PM_RESTART_SHELL (WM_APP + 0x30)
 
 void Log(const wchar_t *fmt, ...);
@@ -42,7 +42,7 @@ void ForceForeground(HWND h);
 /* display.c: "Display" window. uri may be NULL (ms-settings:display / ms-settings:screenrotation). */
 int DisplayWindow(const wchar_t *uri, int argc, wchar_t **argv);
 
-/* net.c (spec 14): "net on|off|toggle|status" (argv[2] = verb), tray icon, "Network" window (uri may be NULL) */
+/* net.c: "net on|off|toggle|status" (argv[2] = verb), tray icon, "Network" window (uri may be NULL) */
 int NetCommand(int argc, wchar_t **argv);
 int NetTray(void);
 int NetWindow(const wchar_t *uri);

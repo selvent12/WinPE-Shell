@@ -10,7 +10,7 @@
  *   offers 100 % up to the largest scale EVERY active display accepts (1920x1080: 175 %; one scale on all displays,
  *   the shell is system DPI aware); Apply sets every display, also after a layout change (a display switched on gets
  *   Windows' default), and restarts the shell so the taskbar is drawn sharp at the new DPI ("Restart shell
- *   now" = message PM_MYPE_RESTART_SHELL to the WinXShell desktop window, WinPE-ShellStart restarts it). The default at start
+ *   now" = message PM_WPS_RESTART_SHELL to the WinXShell desktop window, WinPE-ShellStart restarts it). The default at start
  *   is "scale" in display.json (Set-DisplayLayout.ps1 -> WinPE-ShellUI.exe scale <percent>);
  * - brightness row only when a controllable brightness exists (brightness.c: WMI laptop panel / DDC/CI monitor);
  * - Apply -> "Keep these display settings?" with automatic revert after REVERT_SECONDS;

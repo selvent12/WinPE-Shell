@@ -1,5 +1,5 @@
 /*
- * DlgTest.exe - minimal reproduction of the Open/Save dialog problem in MyPE (NEXT_WINXSHELL.md B). Own code, MSVC /MT.
+ * DlgTest.exe - minimal reproduction of the Open/Save dialog problem in WinPE. Own code, MSVC /MT.
  *   DlgTest.exe <mode> <logfile>
  *   mode: ifd    IFileOpenDialog::Show (modern dialog)
  *         gofn   GetOpenFileNameW, Explorer style (ends up in the modern dialog on current Windows)

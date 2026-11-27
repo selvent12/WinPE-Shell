@@ -1,9 +1,9 @@
 /*
- * MyPEStress.exe - shell stability stress test for MyPE (NEXT_WINXSHELL.md A). Own code, no dependencies, MSVC /MT.
+ * ShellStress.exe - shell stability stress test for WinPE. Own code, no dependencies, MSVC /MT.
  * Runs INSIDE the test PE only. For N minutes: opens/closes windows of notepad, regedit, cmd, Explorer++,
  * switches/minimises/restores them, opens the Start menu (Ctrl+Esc), and checks that the shell (owner of
  * Shell_TrayWnd) keeps the same PID. Log: argv[2] (UTF-8). Exit code 0 = shell PID unchanged, 1 = changed/missing.
- *   MyPEStress.exe <minutes> <logfile>
+ *   ShellStress.exe <minutes> <logfile>
  */
 #define WIN32_LEAN_AND_MEAN
 #ifndef UNICODE
@@ -104,7 +104,7 @@ int wmain(int argc, wchar_t **argv)
     if (argc > 2) g_log = CreateFileW(argv[2], FILE_APPEND_DATA, FILE_SHARE_READ, NULL, OPEN_ALWAYS, 0, NULL);
     ZeroMemory(open, sizeof(open));
     shell0 = ShellPid();
-    Log(L"MyPEStress start: %d min, shell pid %lu", minutes, shell0);
+    Log(L"ShellStress start: %d min, shell pid %lu", minutes, shell0);
     t0 = GetTickCount();
     while (GetTickCount() - t0 < (DWORD)minutes * 60000u) {
         int slot = (int)(cycle % MAXW);
@@ -114,7 +114,7 @@ int wmain(int argc, wchar_t **argv)
 
         if (open[slot].proc || open[slot].hwnd) CloseOne(&open[slot]);
         ZeroMemory(&si, sizeof(si)); si.cb = sizeof(si);
-        _snwprintf_s(title, _countof(title), _TRUNCATE, L"MyPEStress-%lu", cycle);
+        _snwprintf_s(title, _countof(title), _TRUNCATE, L"ShellStress-%lu", cycle);
         if (isCmd) { si.lpTitle = title; _snwprintf_s(cmd, _countof(cmd), _TRUNCATE, L"\"%s\" /k echo stress", exe); }
         else _snwprintf_s(cmd, _countof(cmd), _TRUNCATE, L"\"%s\"", exe);
         if (CreateProcessW(NULL, cmd, NULL, NULL, FALSE, isCmd ? CREATE_NEW_CONSOLE : 0, NULL, L"X:\\", &si, &pi)) {
@@ -140,7 +140,7 @@ int wmain(int argc, wchar_t **argv)
         Sleep(300);
     }
     for (i = 0; i < MAXW; i++) CloseOne(&open[i]);
-    Log(L"MyPEStress end: cycles %lu, windows opened %lu, failed %lu, switches %lu, start menu %lu, shell pid changes %lu, final shell pid %lu",
+    Log(L"ShellStress end: cycles %lu, windows opened %lu, failed %lu, switches %lu, start menu %lu, shell pid changes %lu, final shell pid %lu",
         cycle, opened, failed, switches, starts, shellLost, ShellPid());
     if (g_log != INVALID_HANDLE_VALUE) CloseHandle(g_log);
     return shellLost == 0 && ShellPid() != 0 ? 0 : 1;

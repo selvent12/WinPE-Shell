@@ -1,19 +1,23 @@
 <#
 .SYNOPSIS
   Runs INSIDE the WinPE image at startup (a WinPE-ShellStart run step). Extend mode + native resolution/refresh per
-  monitor + primary/position from <base>\config\display.json (<base> = the folder above this script's bin\, X:\MyPE in
-  MyPE). Retries until the GPU driver has enumerated the outputs. Log: <base>\logs\display.log
+  monitor + primary/position from <base>\config\display.json (<base> = the folder above this script's bin\).
+  Retries until the GPU driver has enumerated the outputs. Log: <base>\logs\display.log
   Then the default scale, applied LIVE (WinPE-ShellUI.exe scale <percent>; the shell restarts if it already runs):
   "scale" (percent, e.g. 150) or "dpiMode" (uniform100..uniform200) from the first file found:
-    <drive>:\MyPE\config\display.json on the boot stick = a fixed/removable drive that has the marker file
-    <drive>:\MyPE\mype-stick (editable without a new ISO; the internal disk of the PC being examined is ignored),
+    <drive>:\<StickConfig> on the boot stick = a fixed/removable drive that has the file <drive>:\<StickMarker>
+    (editable without a new image; the internal disk of the PC being examined is ignored),
     else <base>\config\display.json (from the image). Only the scale is taken from the file on the drive.
+  -StickMarker '' disables the boot-stick lookup.
 #>
 param(
     [string]$Config = (Join-Path (Split-Path $PSScriptRoot -Parent) 'config\display.json'),
     [string]$Dll    = (Join-Path $PSScriptRoot 'DisplayLayout.dll'),
     [string]$Log    = (Join-Path (Split-Path $PSScriptRoot -Parent) 'logs\display.log'),
-    [string]$Ui     = (Join-Path (Split-Path $PSScriptRoot -Parent) 'WinPE-ShellUI.exe'),    [int]$TimeoutSec = 60
+    [string]$Ui     = (Join-Path (Split-Path $PSScriptRoot -Parent) 'WinPE-ShellUI.exe'),
+    [string]$StickMarker = 'MyPE\mype-stick',            # relative to a drive root; same file as JS_STARTMENU.extra_folders_marker
+    [string]$StickConfig = 'MyPE\config\display.json',   # relative to the root of the drive with the marker
+    [int]$TimeoutSec = 60
 )
 $ErrorActionPreference = 'Continue'
 New-Item -ItemType Directory -Force (Split-Path $Log) | Out-Null
@@ -30,10 +34,10 @@ function Get-ScaleFrom([string]$file) {
 }
 function Set-StartScale {
     $pct = 0; $src = ''
-    foreach ($d in [IO.DriveInfo]::GetDrives()) {
+    foreach ($d in $(if ($StickMarker) { [IO.DriveInfo]::GetDrives() } else { @() })) {
         if ($d.Name -like 'X:*' -or $d.DriveType -notin 'Fixed', 'Removable' -or -not $d.IsReady) { continue }
-        if (-not (Test-Path -LiteralPath (Join-Path $d.RootDirectory.FullName 'MyPE\mype-stick'))) { continue }   # not the boot stick
-        $f = Join-Path $d.RootDirectory.FullName 'MyPE\config\display.json'
+        if (-not (Test-Path -LiteralPath (Join-Path $d.RootDirectory.FullName $StickMarker))) { continue }   # not the boot stick
+        $f = Join-Path $d.RootDirectory.FullName $StickConfig
         if (Test-Path -LiteralPath $f) { $pct = Get-ScaleFrom $f; if ($pct) { $src = $f; break } }
     }
     if (-not $pct) { $pct = Get-ScaleFrom $Config; $src = $Config }

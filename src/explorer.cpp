@@ -50,7 +50,7 @@
 //#include "dialogs/settings.h"    // for MdiSdiDlg
 
 #include "services/shellservices.h"
-#include "jconfig/jcfg.h"       // desktop/desktop.h (MYPE_EXIT_RESTART_REQUESTED) comes with precomp.h
+#include "jconfig/jcfg.h"       // desktop/desktop.h (WPS_EXIT_RESTART_REQUESTED) comes with precomp.h
 
 DynamicLoadLibFct<void(__stdcall *)(BOOL)> g_SHDOCVW_ShellDDEInit(TEXT("SHDOCVW"), 118);
 
@@ -1061,7 +1061,7 @@ int WINAPI _tWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPTSTR lpCmdL
 
     BOOL any_desktop_running = IsAnyDesktopRunning();
 
-    BOOL startup_desktop = FALSE;   // MyPE: C4701, not set on every path (e.g. WinPE without -winpe)
+    BOOL startup_desktop = FALSE;   // WinPE-Shell: C4701, not set on every path (e.g. WinPE without -winpe)
 
     // strip extended options from the front of the command line
     String ext_options;
@@ -1083,8 +1083,8 @@ int WINAPI _tWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPTSTR lpCmdL
 
     // command line option "-install" to replace previous shell application with WinXShell
     if (_tcsstr(ext_options, TEXT("-install"))) {
-        // MyPE: registering WinXShell as Winlogon\Shell (HKLM/HKCU) removed - the shell must never change the
-        // registry of the machine it runs on; in MyPE it is started by our launcher (MyPEStart.exe).
+        // WinPE-Shell: registering WinXShell as Winlogon\Shell (HKLM/HKCU) removed - the shell must never change the
+        // registry of the machine it runs on; in a WinPE image it is started by our launcher (WinPE-ShellStart.exe).
         CloseShellProcess();
 
         startup_desktop = TRUE;
@@ -1261,10 +1261,10 @@ int WINAPI _tWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPTSTR lpCmdL
             (*g_SHDOCVW_ShellDDEInit)(FALSE);
     }
 
-    // MyPE "Restart shell" (desktop menu, Start menu, live scale change): a dedicated exit code, so the launcher's
+    // "Restart shell" (desktop menu, Start menu, live scale change): a dedicated exit code, so the launcher's
     // watchdog does not count it as a crash (the normal exit returned 1 here; the 8 s guard uses 0x7F05)
-    if (g_mype_restart_requested)
-        ret = MYPE_EXIT_RESTART_REQUESTED;
+    if (g_restart_requested)
+        ret = WPS_EXIT_RESTART_REQUESTED;
 
     return ret;
 }

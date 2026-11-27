@@ -7,7 +7,7 @@
  *   WinPE-ShellUI.exe restart  [/dryrun]       shutdown dialog (keyboard focus on Restart)
  *   WinPE-ShellUI.exe uri <uri>                handler for the ms-settings: and ms-availablenetworks: protocols
  *   WinPE-ShellUI.exe open <feature> [args]    display [/select N] | network | sysinfo
- *   WinPE-ShellUI.exe net on|off|toggle|status [/quiet] [/boot]   network control (net.c, spec 14)
+ *   WinPE-ShellUI.exe net on|off|toggle|status [/quiet] [/boot]   network control (net.c)
  *   WinPE-ShellUI.exe tray-net                 network tray icon (net.c)
  *   WinPE-ShellUI.exe scale <percent> [/norestart]   live display scale on every display (scale.c), shell restart if needed
  *   WinPE-ShellUI.exe tray-vol                 volume tray icon (vol.c)
@@ -17,9 +17,9 @@
  *   /dryrun: the wpeutil call is replaced by a "DRYRUN ..." line in the log (VM tests).
  *
  * Features are switched in <exe dir>\config\winpe-shellui.ini   [features]  <name>=<value>:
- *   enabled          the built-in window (display = spec 5, display.c; ms-settings:display / ms-settings:screenrotation;
- *                    network = spec 14, net.c; ms-availablenetworks:, ms-settings:network*)
- *   (empty)          short "not available yet" message (system info = spec 13 is not built yet; network if the image has none)
+ *   enabled          the built-in window (display = display.c; ms-settings:display / ms-settings:screenrotation;
+ *                    network = net.c; ms-availablenetworks:, ms-settings:network*)
+ *   (empty)          short "not available yet" message (network if the image has none)
  *   <command line>   that program; the URI, if any, is appended as one argument
  *
  * Log: <exe dir>\logs\winpe-shellui.log (file locations: WpsPath, shellui.h)
@@ -127,7 +127,7 @@ UINT WindowDpi(HWND h)
 }
 
 /* ======================================================================================================== */
-/* features: built-in (display), pluggable through mypeui.ini, otherwise a placeholder message               */
+/* features: built-in (display), pluggable through winpe-shellui.ini, otherwise a placeholder message               */
 /* ======================================================================================================== */
 
 /* Runs the command configured for the feature; returns FALSE if none is configured.

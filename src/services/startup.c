@@ -399,9 +399,9 @@ SETUP           = {FALSE, FALSE, FALSE, TRUE, TRUE, TRUE};
 
 int startup(int argc, const TCHAR *argv[])
 {
-#ifndef MYPE_ENABLE_STARTUP
-    /* MyPE: the shell does not run Run/RunOnce entries nor PendingFileRenameOperations; everything started at
-       boot is started by our launcher (MyPEStart.exe). Build with MYPE_ENABLE_STARTUP to restore the ReactOS behaviour. */
+#ifndef WPS_ENABLE_STARTUP
+    /* WinPE-Shell: the shell does not run Run/RunOnce entries nor PendingFileRenameOperations; everything started at
+       boot is started by our launcher (WinPE-ShellStart.exe). Build with WPS_ENABLE_STARTUP to restore the ReactOS behaviour. */
     (void)argc; (void)argv;
     return 0;
 #else
@@ -463,5 +463,5 @@ int startup(int argc, const TCHAR *argv[])
     _tprintf(TEXT("Operation done\n"));
 
     return res ? 0 : 101;
-#endif /* MYPE_ENABLE_STARTUP */
+#endif /* WPS_ENABLE_STARTUP */
 }

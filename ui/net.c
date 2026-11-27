@@ -921,8 +921,8 @@ static LRESULT CALLBACK TrayProc(HWND h, UINT m, WPARAM wp, LPARAM lp)
             Log(L"tray-net: net %s finished rc=%lu", T.opWant == NS_ON ? L"on" : L"off", rc);
             TrayUpdate(TRUE);
             if (T.opWant == NS_ON) TrayBalloon(rc == NRC_OK ? L"Network is ON." : (rc == NRC_NOADAPTER ? L"Network is ON, but no network adapter was found." :
-                                                (rc == NRC_NOLEASE ? L"Network is ON, no IP address yet." : L"Network could not be switched on (see mypeui.log).")));
-            else TrayBalloon(rc == NRC_OK ? L"Network is OFF." : L"Network switched off, but the check failed (see mypeui.log).");
+                                                (rc == NRC_NOLEASE ? L"Network is ON, no IP address yet." : L"Network could not be switched on (see winpe-shellui.log).")));
+            else TrayBalloon(rc == NRC_OK ? L"Network is OFF." : L"Network switched off, but the check failed (see winpe-shellui.log).");
         } else TrayUpdate(FALSE);
         return 0;
     case WM_TRAYCB:
@@ -936,7 +936,7 @@ static LRESULT CALLBACK TrayProc(HWND h, UINT m, WPARAM wp, LPARAM lp)
         else if (LOWORD(wp) == 14) TrayMenu();
         return 0;
     case WM_CLOSE:
-        return 0;   /* the tray icon has no exit (spec 14) */
+        return 0;   /* the tray icon has no exit */
     case WM_DESTROY:
         PostQuitMessage(0);
         return 0;

@@ -5,7 +5,7 @@
            Output (default .\out):
              out\shell\WinPE-Shell.exe    the shell (desktop, taskbar, Start menu, tray)
              out\ui\WinPE-ShellUI.exe     shutdown dialog, Display window, network ON/OFF + Wi-Fi, volume icon, ms-settings handler
-             out\test\*.exe               DlgTest, MyPEStress, MyPEDump, DpiTest (only with -TestTools; for VM tests)
+             out\test\*.exe               DlgTest, ShellStress, ShellDump, DpiTest (only with -TestTools; for VM tests)
              out\winpe\                   WinPE-ShellStart.exe (startup launcher + shell watchdog), DisplayLayout.dll,
                                           Set-DisplayLayout.ps1, Show-SystemInfo.ps1 (WinPE helpers from winpe\)
              out\build-sha256.csv         SHA256 + PE machine of every binary
@@ -65,7 +65,7 @@ if ($TestTools) {
     New-Item -ItemType Directory -Force "$Out\test" | Out-Null
     Push-Location "$Out\test"
     try {
-        foreach ($t in @(@('MyPEStress', '/SUBSYSTEM:CONSOLE user32.lib'), @('MyPEDump', '/SUBSYSTEM:CONSOLE dbghelp.lib'), @('DlgTest', '/SUBSYSTEM:CONSOLE'), @('DpiTest', '/SUBSYSTEM:CONSOLE user32.lib shcore.lib advapi32.lib'))) {
+        foreach ($t in @(@('ShellStress', '/SUBSYSTEM:CONSOLE user32.lib'), @('ShellDump', '/SUBSYSTEM:CONSOLE dbghelp.lib'), @('DlgTest', '/SUBSYSTEM:CONSOLE'), @('DpiTest', '/SUBSYSTEM:CONSOLE user32.lib shcore.lib advapi32.lib'))) {
             $a = @('/nologo', '/W4', '/O2', '/MT', '/GS', '/DUNICODE', '/D_UNICODE', (Join-Path $PSScriptRoot "tools\test\$($t[0]).c"), "/Fe:$($t[0]).exe", '/link') + ($t[1] -split ' ')
             & cl.exe @a 2>&1 | Where-Object { $_ -match 'warning|error' }
             if ($LASTEXITCODE) { throw "cl failed for $($t[0])" }
