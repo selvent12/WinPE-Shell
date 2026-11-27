@@ -1,7 +1,7 @@
 /*
- * vol.c - MyPE volume tray icon (README.md). Own code, Win32/GDI + Core Audio (MMDevice API) in C.
+ * vol.c - volume tray icon (README.md). Own code, Win32/GDI + Core Audio (MMDevice API) in C.
  *
- *   MyPEUI.exe tray-vol      tray icon of the default playback device (started at boot, single instance)
+ *   WinPE-ShellUI.exe tray-vol      tray icon of the default playback device (started at boot, single instance)
  *
  * - icon: speaker with 0-2 sound waves by level, a cross when muted or when there is no playback device;
  *   tooltip: device name + level;
@@ -9,11 +9,11 @@
  * - right click: menu (Mute, Volume mixer = SndVol.exe, Sound settings = mmsys.cpl);
  * - the state is read every 500 ms (cheap; also catches changes made by other programs and a new default device);
  *   a device that disappears (AUDCLNT_E_DEVICE_INVALIDATED) is re-acquired.
- * Test hooks (WM_COMMAND to the hidden window, class MyPE.TrayVol): 20 mute toggle, 21 volume window, 22 menu,
+ * Test hooks (WM_COMMAND to the hidden window, class WinPE-Shell.TrayVol): 20 mute toggle, 21 volume window, 22 menu,
  * 23 log the state. Log: "tray-vol: ...".
  */
 #define COBJMACROS
-#include "mypeui.h"
+#include "shellui.h"
 #include <mmdeviceapi.h>
 #include <endpointvolume.h>
 #include <propsys.h>
@@ -24,9 +24,9 @@
 #include <wchar.h>
 #include <math.h>
 
-#define TV_CLASS   L"MyPE.TrayVol"
-#define TV_FLYOUT  L"MyPE.VolFlyout"
-#define TV_MUTEX   L"Local\\MyPE.TrayVol"
+#define TV_CLASS   L"WinPE-Shell.TrayVol"
+#define TV_FLYOUT  L"WinPE-Shell.VolFlyout"
+#define TV_MUTEX   L"Local\\WinPE-Shell.TrayVol"
 #define WM_TVCB    (WM_APP + 0x41)
 enum { IDC_V_SLIDER = 501, IDC_V_MUTE, IDC_V_MIXER, IDC_V_LABEL };
 
@@ -486,7 +486,7 @@ int VolTray(void)
     if (!RegisterClassExW(&wc)) { Log(L"tray-vol: RegisterClass (window) failed err=%lu", GetLastError()); goto done; }
     V.taskbarCreated = RegisterWindowMessageW(L"TaskbarCreated");
     /* hidden top-level window (TaskbarCreated is broadcast to top-level windows only) */
-    V.hwnd = CreateWindowExW(WS_EX_TOOLWINDOW, TV_CLASS, L"MyPE volume", WS_POPUP, 0, 0, 0, 0, NULL, NULL, hi, NULL);
+    V.hwnd = CreateWindowExW(WS_EX_TOOLWINDOW, TV_CLASS, L"WinPE-Shell volume", WS_POPUP, 0, 0, 0, 0, NULL, NULL, hi, NULL);
     V.fly = CreateWindowExW(WS_EX_TOOLWINDOW | WS_EX_TOPMOST, TV_FLYOUT, L"Volume", WS_POPUP | WS_BORDER, 0, 0, 300, 104, NULL, NULL, hi, NULL);
     if (!V.hwnd || !V.fly) { Log(L"tray-vol: CreateWindow failed err=%lu", GetLastError()); goto done; }
     V.label = CreateWindowExW(0, L"STATIC", L"", WS_CHILD | WS_VISIBLE | SS_LEFT | SS_NOPREFIX, 0, 0, 10, 10, V.fly, (HMENU)(INT_PTR)IDC_V_LABEL, hi, NULL);

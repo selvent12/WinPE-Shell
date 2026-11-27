@@ -4,7 +4,7 @@
  * and -4 (set DPI scale), the interface the Settings app uses. The scale is relative to the display's recommended
  * one, in steps of g_scaleSteps; min/max say how far Windows lets it go (e.g. 1920x1080: 100..175 %).
  */
-#include "mypeui.h"
+#include "shellui.h"
 #include "scale.h"
 #include <stdlib.h>
 #include <string.h>

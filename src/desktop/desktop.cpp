@@ -850,6 +850,46 @@ DesktopShellView::StretchWallpaper()
     return _hbmWallp;
 }
 
+// JS_DESKTOP.wallpaper: one path, or a list of candidates - the first existing file wins, e.g.
+//   [ "*:\\MyPE\\config\\wallpaper.jpg", "X:\\MyPE\\wallpaper.jpg" ]
+// "*:\" = that file on every fixed / removable drive that contains JS_DESKTOP.wallpaper_marker (default:
+// JS_STARTMENU.extra_folders_marker), i.e. only the boot stick, never the disk of the PC being examined.
+static String ResolveWallpaperPath()
+{
+    Value v = JCFG2("JS_DESKTOP", "wallpaper");
+    if (v.GetType() != ArrayVal) return v.ToString();
+    std::wstring marker = JCFG2_DEF("JS_DESKTOP", "wallpaper_marker", TEXT("")).ToString(std::wstring());
+    if (marker.empty()) marker = JCFG2_DEF("JS_STARTMENU", "extra_folders_marker", TEXT("")).ToString(std::wstring());
+    while (!marker.empty() && (marker[0] == L'\\' || marker[0] == L'/')) marker.erase(0, 1);
+    UINT oldMode = SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOOPENFILEERRORBOX);   // no "insert a disk" boxes
+    std::wstring found;
+    for (size_t i = 0; i < v.size() && found.empty(); i++) {
+        std::wstring p = v[i].ToString(std::wstring());
+        wchar_t buf[MAX_PATH * 2];
+        if (p.empty()) continue;
+        if (ExpandEnvironmentStringsW(p.c_str(), buf, MAX_PATH * 2) && wcslen(buf) < MAX_PATH) p = buf;
+        if (p.size() > 3 && p[0] == L'*' && p[1] == L':' && p[2] == L'\\') {
+            DWORD drives = GetLogicalDrives();
+            for (int d = 2; d < 26 && found.empty(); d++) {          // C: .. Z:
+                if (!(drives & (1u << d))) continue;
+                wchar_t root[4] = {(wchar_t)(L'A' + d), L':', L'\\', 0};
+                UINT t = GetDriveTypeW(root);
+                if (t != DRIVE_FIXED && t != DRIVE_REMOVABLE && t != DRIVE_RAMDISK) continue;
+                if (!marker.empty() && GetFileAttributesW((std::wstring(root) + marker).c_str()) == INVALID_FILE_ATTRIBUTES) continue;
+                std::wstring f = std::wstring(root, 2) + p.substr(2);
+                DWORD a = GetFileAttributesW(f.c_str());
+                if (a != INVALID_FILE_ATTRIBUTES && !(a & FILE_ATTRIBUTE_DIRECTORY)) found = f;
+            }
+        } else {
+            DWORD a = GetFileAttributesW(p.c_str());
+            if (a != INVALID_FILE_ATTRIBUTES && !(a & FILE_ATTRIBUTE_DIRECTORY)) found = p;
+        }
+    }
+    SetErrorMode(oldMode);
+    if (!found.empty()) LOG((TEXT("wallpaper: ") + found).c_str());
+    return String(found.c_str());
+}
+
 LRESULT DesktopShellView::LoadWallpaper(BOOL fInitial)
 {
     EnterCriticalSection(&wpcs);
@@ -865,7 +905,7 @@ LRESULT DesktopShellView::LoadWallpaper(BOOL fInitial)
         SetRect(&_rcWp, 0, 0, 0, 0);
         SetRect(&_rcBitmapWp, 0, 0, 0, 0);
 
-        String wallpaper_path = JCFG2("JS_DESKTOP", "wallpaper").ToString();
+        String wallpaper_path = ResolveWallpaperPath();
         _fStyleWallp = JCFG2("JS_DESKTOP", "wallpaperstyle").ToInt();
         ExpandEnvironmentStrings(wallpaper_path, _szBMPName, MAX_PATH);
         int x, y;

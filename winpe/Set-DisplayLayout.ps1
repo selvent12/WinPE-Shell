@@ -1,18 +1,19 @@
 <#
 .SYNOPSIS
-  Runs INSIDE the WinPE image at startup (a MyPEStart run step). Extend mode + native resolution/refresh per monitor + primary/position
-  from X:\MyPE\config\display.json. Retries until the GPU driver has enumerated the outputs. Log: X:\MyPE\logs\display.log
-  Then the default scale, applied LIVE (MyPEUI.exe scale <percent>; the shell restarts if it already runs):
+  Runs INSIDE the WinPE image at startup (a WinPE-ShellStart run step). Extend mode + native resolution/refresh per
+  monitor + primary/position from <base>\config\display.json (<base> = the folder above this script's bin\, X:\MyPE in
+  MyPE). Retries until the GPU driver has enumerated the outputs. Log: <base>\logs\display.log
+  Then the default scale, applied LIVE (WinPE-ShellUI.exe scale <percent>; the shell restarts if it already runs):
   "scale" (percent, e.g. 150) or "dpiMode" (uniform100..uniform200) from the first file found:
     <drive>:\MyPE\config\display.json on the boot stick = a fixed/removable drive that has the marker file
     <drive>:\MyPE\mype-stick (editable without a new ISO; the internal disk of the PC being examined is ignored),
-    else X:\MyPE\config\display.json (from the image). Only the scale is taken from the file on the drive.
+    else <base>\config\display.json (from the image). Only the scale is taken from the file on the drive.
 #>
 param(
-    [string]$Config = 'X:\MyPE\config\display.json',
-    [string]$Dll    = 'X:\MyPE\bin\DisplayLayout.dll',
-    [string]$Log    = 'X:\MyPE\logs\display.log',
-    [int]$TimeoutSec = 60
+    [string]$Config = (Join-Path (Split-Path $PSScriptRoot -Parent) 'config\display.json'),
+    [string]$Dll    = (Join-Path $PSScriptRoot 'DisplayLayout.dll'),
+    [string]$Log    = (Join-Path (Split-Path $PSScriptRoot -Parent) 'logs\display.log'),
+    [string]$Ui     = (Join-Path (Split-Path $PSScriptRoot -Parent) 'WinPE-ShellUI.exe'),    [int]$TimeoutSec = 60
 )
 $ErrorActionPreference = 'Continue'
 New-Item -ItemType Directory -Force (Split-Path $Log) | Out-Null
@@ -37,10 +38,10 @@ function Set-StartScale {
     }
     if (-not $pct) { $pct = Get-ScaleFrom $Config; $src = $Config }
     if (-not $pct) { Write-Log 'scale: no default in the configuration'; return }
-    $ui = 'X:\MyPE\MyPEUI.exe'
+    $ui = $Ui
     if (-not (Test-Path $ui)) { Write-Log "scale: $ui missing, default $pct% not applied"; return }
     $p = Start-Process $ui -ArgumentList 'scale', $pct -PassThru -Wait
-    Write-Log "scale: default $pct% from $src -> MyPEUI scale exit=$($p.ExitCode) (details in mypeui.log)"
+    Write-Log "scale: default $pct% from $src -> WinPE-ShellUI scale exit=$($p.ExitCode) (details in winpe-shellui.log)"
 }
 
 try {

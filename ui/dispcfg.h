@@ -1,12 +1,12 @@
 /*
- * dispcfg.h - display configuration helpers for the MyPE "Display" window (README.md).
+ * dispcfg.h - display configuration helpers for the "Display" window (README.md).
  * Same approach as builder\tools\Set-DisplayLayout.ps1 / DisplayLayout.cs, rewritten in C:
  *   topology (Extend / Duplicate / only N) and snapshot / revert: QueryDisplayConfig + SetDisplayConfig (CCD API);
  *   per-monitor resolution / refresh / rotation / primary / position: EnumDisplaySettings + ChangeDisplaySettingsEx.
  */
 #ifndef DISPCFG_H
 #define DISPCFG_H
-#include "mypeui.h"
+#include "shellui.h"
 
 #define DC_MAXMON   8
 #define DC_MAXMODES 192

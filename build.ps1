@@ -3,10 +3,10 @@
            optional test tools (tools\test\). Microsoft Build Tools only; no NuGet, vcpkg or network access.
 .DESCRIPTION
            Output (default .\out):
-             out\shell\WinXShell.exe      the shell (desktop, taskbar, Start menu, tray)
-             out\ui\MyPEUI.exe            shutdown dialog, Display window, network ON/OFF + Wi-Fi, volume icon, ms-settings handler
+             out\shell\WinPE-Shell.exe    the shell (desktop, taskbar, Start menu, tray)
+             out\ui\WinPE-ShellUI.exe     shutdown dialog, Display window, network ON/OFF + Wi-Fi, volume icon, ms-settings handler
              out\test\*.exe               DlgTest, MyPEStress, MyPEDump, DpiTest (only with -TestTools; for VM tests)
-             out\winpe\                   MyPEStart.exe (startup launcher + shell watchdog), DisplayLayout.dll,
+             out\winpe\                   WinPE-ShellStart.exe (startup launcher + shell watchdog), DisplayLayout.dll,
                                           Set-DisplayLayout.ps1, Show-SystemInfo.ps1 (WinPE helpers from winpe\)
              out\build-sha256.csv         SHA256 + PE machine of every binary
            Requirements: Visual Studio 2022 Build Tools with "Desktop development with C++" (MSVC v143) and the
@@ -51,14 +51,14 @@ if ($LASTEXITCODE) { throw "MSBuild failed ($LASTEXITCODE), see $log" }
 
 # ---- 2) UI utility + test tools (cl) ----
 & cmd.exe /d /c "`"$vcvars`" >nul 2>nul && set" | ForEach-Object { if ($_ -match '^([^=]+)=(.*)$') { Set-Item "env:$($Matches[1])" $Matches[2] } }
-$uiSrc = 'MyPEUI.c', 'display.c', 'dispcfg.c', 'brightness.c', 'net.c', 'scale.c', 'vol.c' | ForEach-Object { Join-Path $PSScriptRoot "ui\$_" }
+$uiSrc = 'shellui.c', 'display.c', 'dispcfg.c', 'brightness.c', 'net.c', 'scale.c', 'vol.c' | ForEach-Object { Join-Path $PSScriptRoot "ui\$_" }
 $uiLibs = 'kernel32.lib', 'user32.lib', 'gdi32.lib', 'shell32.lib', 'advapi32.lib', 'comctl32.lib', 'ole32.lib', 'oleaut32.lib', 'wbemuuid.lib', 'iphlpapi.lib', 'setupapi.lib', 'cfgmgr32.lib', 'newdev.lib', 'dnsapi.lib'
 Push-Location "$Out\ui"
 try {
     Get-ChildItem -Filter *.obj | Remove-Item -Force
     # /WX: warnings are errors (including the x64 truncation family C4311/C4312/C4302/C4244/C4267/C4090 from /W4)
-    & cl.exe /nologo /W4 /WX /O2 /MT /GS /guard:cf /DUNICODE /D_UNICODE $uiSrc /Fe:MyPEUI.exe /link /SUBSYSTEM:WINDOWS /DYNAMICBASE /NXCOMPAT /guard:cf $uiLibs 2>&1 | Out-File ui-build.log -Encoding UTF8
-    if ($LASTEXITCODE) { Get-Content ui-build.log | Select-Object -Last 20; throw "cl failed for MyPEUI ($LASTEXITCODE)" }
+    & cl.exe /nologo /W4 /WX /O2 /MT /GS /guard:cf /DUNICODE /D_UNICODE $uiSrc /Fe:WinPE-ShellUI.exe /link /SUBSYSTEM:WINDOWS /DYNAMICBASE /NXCOMPAT /guard:cf $uiLibs 2>&1 | Out-File ui-build.log -Encoding UTF8
+    if ($LASTEXITCODE) { Get-Content ui-build.log | Select-Object -Last 20; throw "cl failed for WinPE-ShellUI ($LASTEXITCODE)" }
     Get-ChildItem -Filter *.obj | Remove-Item -Force
 } finally { Pop-Location }
 if ($TestTools) {
@@ -78,8 +78,8 @@ if ($TestTools) {
 New-Item -ItemType Directory -Force "$Out\winpe" | Out-Null
 Push-Location "$Out\winpe"
 try {
-    & cl.exe /nologo /W4 /WX /O2 /MT /GS /guard:cf /DUNICODE /D_UNICODE (Join-Path $PSScriptRoot 'winpe\MyPEStart.c') /Fe:MyPEStart.exe /link /SUBSYSTEM:WINDOWS /DYNAMICBASE /NXCOMPAT /guard:cf kernel32.lib 2>&1 | Out-File winpe-build.log -Encoding UTF8
-    if ($LASTEXITCODE) { Get-Content winpe-build.log | Select-Object -Last 20; throw "cl failed for MyPEStart ($LASTEXITCODE)" }
+    & cl.exe /nologo /W4 /WX /O2 /MT /GS /guard:cf /DUNICODE /D_UNICODE (Join-Path $PSScriptRoot 'winpe\WinPE-ShellStart.c') /Fe:WinPE-ShellStart.exe /link /SUBSYSTEM:WINDOWS /DYNAMICBASE /NXCOMPAT /guard:cf kernel32.lib 2>&1 | Out-File winpe-build.log -Encoding UTF8
+    if ($LASTEXITCODE) { Get-Content winpe-build.log | Select-Object -Last 20; throw "cl failed for WinPE-ShellStart ($LASTEXITCODE)" }
     Get-ChildItem -Filter *.obj | Remove-Item -Force
     # DisplayLayout.dll: C# (P/Invoke only), compiled with the .NET Framework 4 compiler that ships with Windows
     $csc = "$env:windir\Microsoft.NET\Framework64\v4.0.30319\csc.exe"

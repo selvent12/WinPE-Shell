@@ -23,8 +23,8 @@ jobs:
         with:
           name: WinPE-Shell-x64
           path: |
-            out/shell/WinXShell.exe
-            out/ui/MyPEUI.exe
+            out/shell/WinPE-Shell.exe
+            out/ui/WinPE-ShellUI.exe
             out/test/*.exe
             out/winpe/*
             out/build-sha256.csv

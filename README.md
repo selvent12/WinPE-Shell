@@ -9,9 +9,8 @@ WinPE-Shell is a fork of the shell part of [PExplorer](https://github.com/slorel
 by slorelee), itself based on the ReactOS Explorer. It is built entirely from source with the Microsoft build tools;
 no prebuilt third-party binaries are used.
 
-> Status: works in our own WinPE build (VMware; real hardware: AMD GPU with two monitors, Realtek Ethernet). The
-> utility still carries its working name `MyPEUI` and a few `X:\MyPE\...` paths; both will be renamed / made
-> configurable before a 1.0 release.
+> Status: works in our own WinPE build (VMware; real hardware: AMD GPU with two monitors, Realtek Ethernet). No fixed
+> folder: every program finds its configuration and logs next to its own exe (`<exe dir>\config`, `<exe dir>\logs`).
 
 ![Windows 7 style Start menu](docs/img/startmenu-win7-shutdown.png)
 
@@ -19,14 +18,14 @@ no prebuilt third-party binaries are used.
 
 | Component | Path | Output | What it does |
 |---|---|---|---|
-| Shell | `src/` | `WinXShell.exe` | Desktop, taskbar, Start menu, tray, desktop context menu |
-| UI utility | `ui/` | `MyPEUI.exe` | Shutdown dialog, Display window + live scale, network ON/OFF + Wi-Fi, volume icon, `ms-settings:` handler |
-| WinPE helpers | `winpe/` | `MyPEStart.exe`, `DisplayLayout.dll`, 2 scripts | Startup launcher + shell watchdog, display layout at boot, system information |
+| Shell | `src/` | `WinPE-Shell.exe` | Desktop, taskbar, Start menu, tray, desktop context menu |
+| UI utility | `ui/` | `WinPE-ShellUI.exe` | Shutdown dialog, Display window + live scale, network ON/OFF + Wi-Fi, volume icon, `ms-settings:` handler |
+| WinPE helpers | `winpe/` | `WinPE-ShellStart.exe`, `DisplayLayout.dll`, 2 scripts | Startup launcher + shell watchdog, display layout at boot, system information |
 | Test tools | `tools/test/` | `DlgTest`, `MyPEStress`, `MyPEDump`, `DpiTest` | Checks inside a test VM (optional) |
 
 ## 2. Features
 
-### Shell (`WinXShell.exe`)
+### Shell (`WinPE-Shell.exe`)
 - Desktop with icons, wallpaper or solid colour, the standard shell view menus (View, Sort by, Refresh, Paste, New).
 - Taskbar with Start button, quick launch, task buttons, notification area and clock.
 - **Windows 11 look** (`JS_TASKBAR.style = "win11"`): icon-only task buttons with rounded hover / active backgrounds
@@ -39,19 +38,19 @@ no prebuilt third-party binaries are used.
 - Folder windows can be handed to a third-party file manager (for example Explorer++).
 - System DPI aware; "Restart shell" exits with code `0x7F04` so a launcher's watchdog can tell it from a crash.
 
-### UI utility (`MyPEUI.exe`)
+### UI utility (`WinPE-ShellUI.exe`)
 
 | Command | What it does |
 |---|---|
-| `MyPEUI shutdown\|restart [/dryrun]` | Shutdown dialog: semi-opaque overlay on every monitor, Restart / Shut down; Esc or a click outside cancels |
-| `MyPEUI open display [/select N]` | Display window |
-| `MyPEUI open network` | Network window |
-| `MyPEUI open sysinfo` | System information (pluggable: a command line in `mypeui.ini`) |
-| `MyPEUI uri <uri>` | Handler for `ms-settings:` and `ms-availablenetworks:` |
-| `MyPEUI net on\|off\|toggle\|status [/quiet] [/boot]` | Network control |
-| `MyPEUI tray-net` | Network icon in the tray |
-| `MyPEUI tray-vol` | Volume icon in the tray |
-| `MyPEUI scale <percent> [/norestart]` | Live display scale on every display (restarts the shell if it changed) |
+| `WinPE-ShellUI shutdown\|restart [/dryrun]` | Shutdown dialog: semi-opaque overlay on every monitor, Restart / Shut down; Esc or a click outside cancels |
+| `WinPE-ShellUI open display [/select N]` | Display window |
+| `WinPE-ShellUI open network` | Network window |
+| `WinPE-ShellUI open sysinfo` | System information (pluggable: a command line in `winpe-shellui.ini`) |
+| `WinPE-ShellUI uri <uri>` | Handler for `ms-settings:` and `ms-availablenetworks:` |
+| `WinPE-ShellUI net on\|off\|toggle\|status [/quiet] [/boot]` | Network control |
+| `WinPE-ShellUI tray-net` | Network icon in the tray |
+| `WinPE-ShellUI tray-vol` | Volume icon in the tray |
+| `WinPE-ShellUI scale <percent> [/norestart]` | Live display scale on every display (restarts the shell if it changed) |
 
 **Display window**: monitors drawn by their real position; Extend / Duplicate / only display N; per display
 resolution, refresh rate, orientation, main display; every change with a 15 s "Keep changes?" countdown and automatic
@@ -69,16 +68,17 @@ temporary profile that is never stored). A state left behind by a killed process
 Volume mixer, Sound settings); follows device changes and live scale changes.
 
 ### WinPE helpers (`winpe/`)
-- **`MyPEStart.exe`** (C, no console): the only `winpeshl.ini` entry. Runs `wpeinit`, then the steps of
-  `X:\MyPE\config\startup.ini` `[run]` (`wait|`, `nowait|`, `wait<seconds>|` = wait at most that long), then starts the
-  shell and restarts it when it exits. Crashes: at most 4 starts in 60 s, then a rescue command prompt; requested
-  restarts (exit codes `0x7F04` / `0x7F05`) have their own, larger limit. Log: `X:\MyPE\logs\startup.log`.
+- **`WinPE-ShellStart.exe`** (C, no console): the only `winpeshl.ini` entry. Runs `wpeinit`, then the steps of
+  `<exe dir>\config\startup.ini` `[run]` (`wait|`, `nowait|`, `wait<seconds>|` = wait at most that long), then starts
+  the shell and restarts it when it exits. Crashes: at most 4 starts in 60 s, then a rescue command prompt; requested
+  restarts (exit codes `0x7F04` / `0x7F05`) have their own, larger limit. Log: `<exe dir>\logs\startup.log`.
+  The scripts use the folder above their `bin\` (`<base>\config`, `<base>\logs`, `<base>\WinPE-ShellUI.exe`).
 - **`DisplayLayout.dll`** (C#, P/Invoke only) + **`Set-DisplayLayout.ps1`**: at boot, waits for the GPU driver, sets
   Extend mode, the native resolution / refresh of every monitor, the main display and positions from `display.json`,
-  falls back to one monitor on the Basic Display Adapter, then applies the default scale live (`MyPEUI scale`). A
+  falls back to one monitor on the Basic Display Adapter, then applies the default scale live (`WinPE-ShellUI scale`). A
   `MyPE\config\display.json` on the boot stick (drive with the marker `MyPE\mype-stick`) overrides the scale.
 - **`Show-SystemInfo.ps1`**: read-only system report (system, firmware / Secure Boot, CPU, memory modules, graphics,
-  disks and volumes, network adapters) shown in Notepad; used as `sysinfo=` in `mypeui.ini`.
+  disks and volumes, network adapters) shown in Notepad; used as `sysinfo=` in `winpe-shellui.ini`.
 
 ## 3. Build
 
@@ -92,7 +92,7 @@ cd WinPE-Shell
 .\build.ps1 -TestTools             # + test tools
 .\build.ps1 -VsPath D:\BuildTools  # if vswhere cannot find Build Tools
 ```
-Output: `out\shell\WinXShell.exe`, `out\ui\MyPEUI.exe`, `out\winpe\` (MyPEStart.exe, DisplayLayout.dll built with the
+Output: `out\shell\WinPE-Shell.exe`, `out\ui\WinPE-ShellUI.exe`, `out\winpe\` (WinPE-ShellStart.exe, DisplayLayout.dll built with the
 Windows .NET Framework 4 `csc.exe`, the two scripts), `out\test\*.exe`, logs and `out\build-sha256.csv` (SHA256 and
 PE machine of every binary). The shell treats the x64 truncation warnings (C4311/C4312/C4302/C4244/C4267/C4090) as
 errors; the UI utility builds with `/W4 /WX`. MSVC binaries are not bit-for-bit reproducible across machines: if you
@@ -103,14 +103,15 @@ VS 2022 + Windows SDK, read-only token, no extra downloads) and uploads the bina
 
 ## 4. Configuration
 
-### Shell: `WinXShell.jcfg` (JSON next to `WinXShell.exe`)
+### Shell: `WinPE-Shell.jcfg` (JSON next to `WinPE-Shell.exe`)
 ```json
 {
   "JS_FILEEXPLORER": { "3rd_filename": "X:\\Program Files\\Explorer++\\Explorer++.exe",
                        "3rd_open_arguments": "\"%s\"", "hook_GetShellWindow": false },
-  "JS_DESKTOP": { "bkcolor": [30, 34, 48], "wallpaper": "X:\\wallpaper.jpg", "wallpaperstyle": 0,
-                  "menu": { "display":  { "command": "X:\\Tools\\MyPEUI.exe", "parameters": "open display" },
-                            "sysprops": { "command": "X:\\Tools\\MyPEUI.exe", "parameters": "open sysinfo" },
+  "JS_DESKTOP": { "bkcolor": [30, 34, 48], "wallpaperstyle": 0,
+                  "wallpaper": [ "*:\\MyPE\\config\\wallpaper.jpg", "X:\\MyPE\\wallpaper.jpg" ],
+                  "menu": { "display":  { "command": "X:\\Tools\\WinPE-ShellUI.exe", "parameters": "open display" },
+                            "sysprops": { "command": "X:\\Tools\\WinPE-ShellUI.exe", "parameters": "open sysinfo" },
                             "cmdhere":  { "hide": true } } },
   "JS_TASKBAR": { "theme": "dark", "style": "win11", "align": "left", "height": 48, "smallicon": 32,
                   "bkcolor": [32, 32, 32] },
@@ -118,8 +119,8 @@ VS 2022 + Windows SDK, read-only token, no extra downloads) and uploads the bina
     "style": "win11",
     "extra_folders": [ "*:\\MyPE\\Programs" ],
     "extra_folders_marker": "MyPE\\mype-stick",
-    "commands": { "reboot":   { "command": "X:\\Tools\\MyPEUI.exe", "parameters": "restart" },
-                  "shutdown": { "command": "X:\\Tools\\MyPEUI.exe", "parameters": "shutdown" } },
+    "commands": { "reboot":   { "command": "X:\\Tools\\WinPE-ShellUI.exe", "parameters": "restart" },
+                  "shutdown": { "command": "X:\\Tools\\WinPE-ShellUI.exe", "parameters": "shutdown" } },
     "win7": { "title": "WinPE", "pinned": [ "Command Prompt" ],
               "right": [ { "text": "This PC", "command": "::explorer" }, {}, { "text": "Run...", "command": "::run" } ],
               "width_left": 300, "width_right": 200, "height": 520 }
@@ -127,6 +128,11 @@ VS 2022 + Windows SDK, read-only token, no extra downloads) and uploads the bina
 }
 ```
 - `JS_FILEEXPLORER.3rd_filename`: program for folder windows (`%s` = folder); `hook_GetShellWindow: false` recommended.
+- `JS_DESKTOP.wallpaper`: one BMP/JPG path, or a list of candidates - the first existing file wins. `*:\` = that file
+  on every fixed / removable drive that contains `wallpaper_marker` (default: `JS_STARTMENU.extra_folders_marker`), so
+  a picture on the boot stick replaces the default without a new image; the internal disk is never used.
+  `wallpaperstyle`: 0 = stretched to the screen. `winpe\New-Wallpaper.ps1` draws a default (`-Style hills`: sky,
+  clouds, green hills; `-Style dark`), own drawing, no third-party picture.
 - `JS_DESKTOP.menu.<key>` (`display`, `sysprops`, `cmdhere`, `restartshell`, `restart`, `shutdown`): `command`,
   `parameters`, `text`, `hide`. URI commands are started with the protocol class.
 - `JS_TASKBAR.style`: `"classic"` (default) or `"win11"`; `align` (win11): `"left"` (default) or `"center"`;
@@ -141,7 +147,7 @@ VS 2022 + Windows SDK, read-only token, no extra downloads) and uploads the bina
     skipped. `extra_folders_marker`: a `*:\` pattern only matches drives that contain this file (the boot stick), so the
     internal disk of the PC being examined cannot add Start menu entries.
 
-### UI utility: `mypeui.ini` (UTF-16, `X:\MyPE\config\mypeui.ini`; log `X:\MyPE\logs\mypeui.log`)
+### UI utility: `winpe-shellui.ini` (UTF-16, `<exe dir>\config\winpe-shellui.ini`, former name `mypeui.ini` still read; log `<exe dir>\logs\winpe-shellui.log`)
 ```ini
 [features]
 display=enabled           ; enabled = built-in window, empty = "not available yet", other = command line to run
@@ -157,23 +163,37 @@ waitSeconds=60
 dnsTestName=
 ```
 Links handed to a configured command are passed as one quoted argument; links with quotes or control characters are
-refused. Network intent is kept in `HKLM\SOFTWARE\MyPE\Network` (`State`) in the RAM registry.
+refused. Network intent is kept in `HKLM\SOFTWARE\WinPE-Shell\Network` (`State`) in the RAM registry.
 
 ## 5. Using it in a WinPE image
-All files below are **Microsoft files from the matching `install.wim`**; nothing third-party is needed.
-- **Files**: `WinXShell.exe` + `.jcfg`; `MyPEUI.exe` + `mypeui.ini`; the **`Windows\SystemResources\*.mun`** of every
-  binary in the image (Windows 11 keeps system icons there; without them the Open/Save dialog crashes and MMC fails);
-  the `en-US\*.mui` of every added file; `dxva2.dll` (DDC/CI brightness); `ieframe.dll` (URI parsing: without it
-  `start ms-settings:...` fails with "The specified module could not be found"); the WLAN stack for Wi-Fi; Core Audio
-  plus the in-box audio driver packages for the volume icon.
-- **Registry** (offline): `Classes\ms-settings` and `ms-availablenetworks` -> `"X:\MyPE\MyPEUI.exe" uri "%1"`; remove
+All files below are **Microsoft files from the ADK or from the matching `install.wim`**; nothing third-party is needed.
+
+### Dependencies
+
+| Needed by | WinPE optional components (ADK `WinPE_OCs`) | Files / services (from `install.wim` unless in WinPE already) |
+|---|---|---|
+| Shell (`WinPE-Shell.exe`) | none | `shell32`, `comctl32` v6, `shlwapi`, `uxtheme`, `dwmapi`, `msimg32` (in WinPE); the **`Windows\SystemResources\*.mun`** of every binary in the image (Windows 11 keeps system icons there: without them the Open/Save dialog crashes and MMC fails); the `en-US\*.mui` of every added file |
+| Folder windows (optional) | none | a file manager such as Explorer++ (`JS_FILEEXPLORER.3rd_filename`); the native folder window hangs in WinPE |
+| UI utility (`WinPE-ShellUI.exe`) | WinPE-WMI (brightness of laptop panels, `root\wmi`) | `iphlpapi`, `setupapi`, `cfgmgr32`, `newdev`, `dnsapi`, `wpeutil`, `drvload` (in WinPE); `dxva2.dll` (DDC/CI brightness of external monitors, loaded at run time); `ieframe.dll` (URI parsing: without it `start ms-settings:...` fails with "The specified module could not be found") |
+| Network window / Wi-Fi | (WinRE base: networking present) | network services `BFE MpsSvc nsi Dhcp Dnscache NlaSvc lmhosts LanmanWorkstation`; Wi-Fi: `WlanSvc`, `wlanapi.dll` (loaded at run time), `nwifi.sys`, WLAN profile / security DLLs; NIC / Wi-Fi drivers |
+| Volume icon | none | Core Audio (`AudioSrv`, `AudioEndpointBuilder`, `mmdevapi.dll`, `audioses.dll`), the in-box audio driver packages (`hdaudbus`, `hdaudio`, `ks`, `wdmaudio`, `usbaudio2`, ...), optional `SndVol.exe` (mixer) and `mmsys.cpl` (Sound panel) |
+| Live display scale | none | `user32` DisplayConfig (in WinPE); the shell's manifest is system DPI aware |
+| `WinPE-ShellStart.exe` | none | `wpeinit` (in WinPE); `cmd.exe` as the rescue prompt |
+| `Set-DisplayLayout.ps1` + `DisplayLayout.dll` | WinPE-WMI, WinPE-NetFx, WinPE-Scripting, WinPE-PowerShell | .NET Framework 4 (`Add-Type` of the DLL) |
+| `Show-SystemInfo.ps1` | WinPE-WMI, WinPE-NetFx, WinPE-Scripting, WinPE-PowerShell, WinPE-StorageWMI, WinPE-SecureBootCmdlets | `notepad.exe` to show the report |
+
+- **Files**: `WinPE-Shell.exe` + `WinPE-Shell.jcfg` (any folder, e.g. `X:\Program Files\WinPE-Shell`);
+  `WinPE-ShellUI.exe` and `WinPE-ShellStart.exe` in one folder `<dir>` with `<dir>\config\` (`winpe-shellui.ini`,
+  `startup.ini`, `display.json`) and `<dir>\logs\` (created at run time); the scripts and `DisplayLayout.dll` in
+  `<dir>\bin\`.
+- **Registry** (offline): `Classes\ms-settings` and `ms-availablenetworks` -> `"<dir>\WinPE-ShellUI.exe" uri "%1"`; remove
   leftover `DesktopBackground\Shell\*` verbs; per-user settings in `HKU\.DEFAULT` (the shell runs as SYSTEM); network
   off by default (`EnableNetwork=false` in `Unattend.xml`, services on demand, `Dnscache` disabled at boot).
 - **Startup**: `winpeshl.ini` starts one long-running launcher that runs `wpeinit`, the startup steps (`net off /boot`,
   `tray-net`, `tray-vol`, a display layout script) and then starts and watches the shell (restart on exit; treat exit
   code `0x7F04` as a requested restart). If the last program in `winpeshl.ini` exits, WinPE reboots.
 - **DPI**: `LogPixels` is read at session start only, but the per-monitor scale can be changed live
-  (`MyPEUI scale`); processes started afterwards get the new DPI, so a shell restart draws the taskbar sharp.
+  (`WinPE-ShellUI scale`); processes started afterwards get the new DPI, so a shell restart draws the taskbar sharp.
 - The Windows 11 `explorer.exe` cannot be the WinPE shell (its taskbar needs AppX/XAML and a real logon session).
 
 ## 6. Changes compared with upstream
@@ -193,6 +213,9 @@ Base: PExplorer branch `WinXShell_shellpart` @ `5f8b886` (2018-08-19).
   volume icon.
 - **13** `extra_folders_marker` (boot stick only); volume icon: icon size follows live scale changes, the slider
   follows outside volume changes, logging limited, stale audio enumerator re-created.
+- **15** Names: `WinPE-Shell.exe` (+ `WinPE-Shell.jcfg`, `WinXShell.jcfg` still read), `WinPE-ShellUI.exe`,
+  `WinPE-ShellStart.exe`; configuration and logs relative to the exe folder; registry key
+  `HKLM\SOFTWARE\WinPE-Shell\Network`; window classes / mutexes `WinPE-Shell.*`.
 - **14** WinPE helpers moved here from the image builder: startup launcher / watchdog, display layout, system
   information (`winpe/`, built by `build.ps1`).
 

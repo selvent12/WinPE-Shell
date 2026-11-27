@@ -1,7 +1,7 @@
 /*
- * display.c - MyPE "Display" window (README.md). Own code, plain Win32/GDI, per-monitor DPI aware.
+ * display.c - "Display" window (README.md). Own code, plain Win32/GDI, per-monitor DPI aware.
  *
- *   MyPEUI.exe open display [/select N]      (also ms-settings:display, ms-settings:screenrotation)
+ *   WinPE-ShellUI.exe open display [/select N]      (also ms-settings:display, ms-settings:screenrotation)
  *
  * - monitors drawn at their real relative position (1, 2, ...), click = select (or the "Display" list);
  * - mode: Extend / Duplicate / Show only on N (SetDisplayConfig topology);
@@ -10,20 +10,20 @@
  *   offers 100 % up to the largest scale EVERY active display accepts (1920x1080: 175 %; one scale on all displays,
  *   the shell is system DPI aware); Apply sets every display, also after a layout change (a display switched on gets
  *   Windows' default), and restarts the shell so the taskbar is drawn sharp at the new DPI ("Restart shell
- *   now" = message PM_MYPE_RESTART_SHELL to the WinXShell desktop window, MyPEStart restarts it). The default at start
- *   is "scale" in display.json (Set-DisplayLayout.ps1 -> MyPEUI.exe scale <percent>);
+ *   now" = message PM_MYPE_RESTART_SHELL to the WinXShell desktop window, WinPE-ShellStart restarts it). The default at start
+ *   is "scale" in display.json (Set-DisplayLayout.ps1 -> WinPE-ShellUI.exe scale <percent>);
  * - brightness row only when a controllable brightness exists (brightness.c: WMI laptop panel / DDC/CI monitor);
  * - Apply -> "Keep these display settings?" with automatic revert after REVERT_SECONDS;
- * - "Save as default" writes X:\MyPE\config\display.json (RAM disk: this session only).
- * Every step and failure is logged to X:\MyPE\logs\mypeui.log ("display: ...").
+ * - "Save as default" writes <exe dir>\config\display.json (RAM disk: this session only).
+ * Every step and failure is logged to <exe dir>\logs\winpe-shellui.log ("display: ...").
  *
  * Control IDs (stable, used by tests\vm\actions\display.ps1 through CB_SETCURSEL + WM_COMMAND/CBN_SELCHANGE, BM_CLICK):
  *   101 mode  102 display  103 resolution  104 refresh  105 orientation  106 main display (checkbox)
  *   107 brightness (trackbar)  108 scale  109 Restart shell now  110 Save as default  111 Apply  112 Close
  *   120 info text  121 status text  122 scale note  123 brightness value
- *   confirmation window (class MyPE.DisplayConfirm): 201 Keep changes  202 Revert  203 countdown text
+ *   confirmation window (class WinPE-Shell.DisplayConfirm): 201 Keep changes  202 Revert  203 countdown text
  */
-#include "mypeui.h"
+#include "shellui.h"
 #include "dispcfg.h"
 #include "brightness.h"
 #include "scale.h"
@@ -33,9 +33,9 @@
 #include <stdio.h>
 #include <wchar.h>
 
-#define DISP_CLASS    L"MyPE.Display"
-#define CONF_CLASS    L"MyPE.DisplayConfirm"
-#define DISP_MUTEX    L"Local\\MyPE.Display"
+#define DISP_CLASS    L"WinPE-Shell.Display"
+#define CONF_CLASS    L"WinPE-Shell.DisplayConfirm"
+#define DISP_MUTEX    L"Local\\WinPE-Shell.Display"
 #define REVERT_SECONDS 15
 
 enum {
@@ -214,7 +214,7 @@ static void JEsc(const wchar_t *in, wchar_t *out, size_t cch)
 
 static void SaveDefault(void)
 {
-    wchar_t *old = ReadTextFile(MYPE_DISPJSON), gpu[128] = L"", txt[4096], esc[160], prim[32] = L"";
+    wchar_t *old = ReadTextFile(WPS_DISPJSON), gpu[128] = L"", txt[4096], esc[160], prim[32] = L"";
     CfgMon cm[DC_MAXMON], ids[DC_MAXMON];
     long fbw = 1920, fbh = 1080;
     int ncm = 0, k, j, nids = 0, len, primIdx = -1;
@@ -285,17 +285,17 @@ static void SaveDefault(void)
                         g.dpiPend * 100 / 96, ModeFromDpi(g.dpiPend), fbw, fbh);
     (void)len;
     k = WideCharToMultiByte(CP_UTF8, 0, txt, -1, utf8, sizeof(utf8), NULL, NULL);
-    h = CreateFileW(MYPE_DISPJSON, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+    h = CreateFileW(WPS_DISPJSON, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
     if (k <= 1 || h == INVALID_HANDLE_VALUE || !WriteFile(h, utf8, (DWORD)(k - 1), &wr, NULL)) {
         DWORD e = GetLastError();
         if (h != INVALID_HANDLE_VALUE) CloseHandle(h);
-        Log(L"display: save %s FAILED err=%lu", MYPE_DISPJSON, e);
-        SetStatus(L"Could not write %s (error %lu).", MYPE_DISPJSON, e);
+        Log(L"display: save %s FAILED err=%lu", WPS_DISPJSON, e);
+        SetStatus(L"Could not write %s (error %lu).", WPS_DISPJSON, e);
         return;
     }
     CloseHandle(h);
-    Log(L"display: saved %s: mode=%s primary=%s monitors=%d dpiMode=%s", MYPE_DISPJSON, mode, prim, nids, ModeFromDpi(g.dpiPend));
-    SetStatus(L"Saved as default in %s (this session only: X: is a RAM disk).", MYPE_DISPJSON);
+    Log(L"display: saved %s: mode=%s primary=%s monitors=%d dpiMode=%s", WPS_DISPJSON, mode, prim, nids, ModeFromDpi(g.dpiPend));
+    SetStatus(L"Saved as default in %s (this session only: X: is a RAM disk).", WPS_DISPJSON);
 }
 
 /* ------------------------------------------------------------------------------------------------ */
@@ -509,7 +509,7 @@ static void UpdateDpiNote(void)
     if (g.dpiPend != g.dpiCur)
         _snwprintf_s(t, _countof(t), _TRUNCATE, L"Apply changes all displays to %lu%% now (the same scale on every display); the taskbar restarts. Open windows of older programs may look blurry until they are reopened.", g.dpiPend * 100 / 96);
     else
-        _snwprintf_s(t, _countof(t), _TRUNCATE, L"Same scale on all displays. Default at start: \"scale\" in MyPE\\config\\display.json (on the boot drive or in the image).");
+        _snwprintf_s(t, _countof(t), _TRUNCATE, L"Same scale on all displays. Default at start: \"scale\" in config\\display.json (on the boot stick or in the image).");
     SetWindowTextW(Ctl(IDC_DPINOTE), t);
 }
 
@@ -777,7 +777,7 @@ static void FinishConfirm(BOOL keep, const wchar_t *how)
         Dc_Describe(&g.st, d, _countof(d));
         Log(L"display: REVERTED (%s) rc=%ld: %s", how, rc, d);
         if (rc == ERROR_SUCCESS) SetStatus(L"Previous display settings restored (%s).", how);
-        else SetStatus(L"Could not fully restore the previous settings (error %ld). See X:\\MyPE\\logs\\mypeui.log.", rc);
+        else SetStatus(L"Could not fully restore the previous settings (error %ld). See logs\\winpe-shellui.log next to WinPE-ShellUI.exe.", rc);
     }
     EnsureVisible(g.hwnd);
     SetForegroundWindow(g.hwnd);
@@ -1008,7 +1008,7 @@ static void RestartShell(void)
     if (!desk) { Log(L"display: restart shell: no Progman window"); SetStatus(L"Shell window not found: restart the shell from the desktop menu."); return; }
     GetWindowThreadProcessId(desk, &pid);
     Log(L"display: restart shell requested (Progman %p, pid %lu)", (void *)desk, pid);
-    if (!PostMessageW(desk, MYPE_PM_RESTART_SHELL, 0, 0)) { Log(L"display: PostMessage failed err=%lu", GetLastError()); SetStatus(L"Could not ask the shell to restart (error %lu).", GetLastError()); return; }
+    if (!PostMessageW(desk, WPS_PM_RESTART_SHELL, 0, 0)) { Log(L"display: PostMessage failed err=%lu", GetLastError()); SetStatus(L"Could not ask the shell to restart (error %lu).", GetLastError()); return; }
     SetStatus(L"The shell is restarting (the taskbar disappears for a few seconds).");
 }
 

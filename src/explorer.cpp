@@ -109,11 +109,22 @@ void ExplorerGlobals::load_config()
     JVAR("JVAR_MODULENAME") = strFileName;
     _tsetlocale(LC_ALL, TEXT("")); //set locale for support multibyte character
 
+    // configuration = <exe name>.jcfg next to the exe (WinPE-Shell.exe -> WinPE-Shell.jcfg); falls back to the
+    // upstream name WinXShell.jcfg so existing images keep working after the rename
+    String base = strFileName;
+    size_t dot = base.rfind(TEXT('.'));
+    if (dot != String::npos) base = base.substr(0, dot);
+    if (base.empty()) base = TEXT("WinPE-Shell");
 #ifdef _DEBUG
-    String cfgfile = TEXT("WinXShell.jcfg");
+    String dir = TEXT("");
 #else
-    String cfgfile = strPath + TEXT("\\WinXShell.jcfg");
+    String dir = strPath + TEXT("\\");
 #endif
+    String cfgfile = dir + base + TEXT(".jcfg");
+    if (GetFileAttributes(cfgfile.c_str()) == INVALID_FILE_ATTRIBUTES) {
+        String old = dir + TEXT("WinXShell.jcfg");
+        if (GetFileAttributes(old.c_str()) != INVALID_FILE_ATTRIBUTES) cfgfile = old;
+    }
     Load_JCfg(cfgfile);
 }
 

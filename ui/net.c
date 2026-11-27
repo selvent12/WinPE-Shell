@@ -1,9 +1,9 @@
 /*
- * net.c - MyPE network control (README.md: network OFF at boot, started manually). Own code, Win32 only.
+ * net.c - network control (README.md: network OFF at boot, started manually). Own code, Win32 only.
  *
- *   MyPEUI.exe net on|off|toggle|status [/quiet] [/boot]
- *   MyPEUI.exe tray-net                  tray icon (single instance): OFF / ON / connected
- *   MyPEUI.exe open network              "Network" window: ON/OFF, adapters, Wi-Fi list + connect (also ms-availablenetworks:,
+ *   WinPE-ShellUI.exe net on|off|toggle|status [/quiet] [/boot]
+ *   WinPE-ShellUI.exe tray-net                  tray icon (single instance): OFF / ON / connected
+ *   WinPE-ShellUI.exe open network              "Network" window: ON/OFF, adapters, Wi-Fi list + connect (also ms-availablenetworks:,
  *                                        ms-settings:network*)
  *
  * ON  = enable physical NICs (if "net off" disabled them), "wpeutil EnableFirewall", start [network] onServices in order
@@ -12,12 +12,12 @@
  * OFF = disconnect Wi-Fi, "ipconfig /release" (if a lease exists), disable physical NICs (until reboot), stop
  *       offServices in order (active dependents first), verify: no IPv4 address left, services stopped.
  * /boot (startup step after drvload): the same checks; makes sure the image starts in the OFF state and logs it.
- * Settings: X:\MyPE\config\mypeui.ini [network] mode=manual|full-off|noNicKeepTcpip, onServices=, offServices=,
- *           waitSeconds= (written by the builder from build.json). Intent: HKLM\SOFTWARE\MyPE\Network State=on|off|
- *           turning-on|turning-off (RAM registry). Every step goes to X:\MyPE\logs\mypeui.log ("net: ..."); console
- *           output of wpeutil/ipconfig to X:\MyPE\logs\net-commands.log.
+ * Settings: <exe dir>\config\winpe-shellui.ini [network] mode=manual|full-off|noNicKeepTcpip, onServices=, offServices=,
+ *           waitSeconds= (written by the builder from build.json). Intent: HKLM\SOFTWARE\WinPE-Shell\Network State=on|off|
+ *           turning-on|turning-off (RAM registry). Every step goes to <exe dir>\logs\winpe-shellui.log ("net: ..."); console
+ *           output of wpeutil/ipconfig to <exe dir>\logs\net-commands.log.
  *
- * Wi-Fi uses the Native Wifi API (wlanapi.dll loaded at run time, so MyPEUI.exe also starts in images without WLAN):
+ * Wi-Fi uses the Native Wifi API (wlanapi.dll loaded at run time, so WinPE-ShellUI.exe also starts in images without WLAN):
  * WlanOpenHandle / WlanEnumInterfaces / WlanScan / WlanGetAvailableNetworkList / WlanConnect with a TEMPORARY profile
  * (wlan_connection_mode_temporary_profile: built in memory from SSID + password, never stored by WlanSvc, buffers wiped)
  * / WlanDisconnect. WPA2-Personal (AES/TKIP), WPA3-Personal (SAE) and open networks; 802.1X / WEP are refused.
@@ -25,9 +25,9 @@
  * Control IDs (stable, used by tests\vm\actions\network.ps1):
  *   401 status  402 ON/OFF button  403 adapters text  404 "Wi-Fi" header  405 network list (ListView)  406 password label
  *   407 password  408 Connect  409 Disconnect  410 Refresh  411 Close  412 Wi-Fi message  413 Wi-Fi connection status
- * Tray window: class MyPE.TrayNet, title "MyPE network: <off|on|connected|turning-on|turning-off> <IPv4 list>".
+ * Tray window: class WinPE-Shell.TrayNet, title "Network: <off|on|connected|turning-on|turning-off> <IPv4 list>".
  */
-#include "mypeui.h"
+#include "shellui.h"
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #include <shellapi.h>
@@ -44,13 +44,13 @@
 #include <wchar.h>
 #include <math.h>
 
-#define NET_REGKEY     L"SOFTWARE\\MyPE\\Network"
-#define NET_OPMUTEX    L"Global\\MyPE.NetOperation"
-#define TRAY_MUTEX     L"Local\\MyPE.TrayNet"
-#define TRAY_CLASS     L"MyPE.TrayNet"
-#define NETW_CLASS     L"MyPE.Network"
-#define NETW_MUTEX     L"Local\\MyPE.Network"
-#define CMDLOG         L"X:\\MyPE\\logs\\net-commands.log"
+#define NET_REGKEY     L"SOFTWARE\\WinPE-Shell\\Network"
+#define NET_OPMUTEX    L"Global\\WinPE-Shell.NetOperation"
+#define TRAY_MUTEX     L"Local\\WinPE-Shell.TrayNet"
+#define TRAY_CLASS     L"WinPE-Shell.TrayNet"
+#define NETW_CLASS     L"WinPE-Shell.Network"
+#define NETW_MUTEX     L"Local\\WinPE-Shell.Network"
+#define CMDLOG         WPS_CMDLOG
 #define WM_TRAYCB      (WM_APP + 1)
 #define WM_APP_WLAN    (WM_APP + 2)
 #define MAXAD          16
@@ -78,15 +78,15 @@ typedef struct { wchar_t name[96]; wchar_t desc[160]; wchar_t ipv4[160]; wchar_t
 static void NetLoadCfg(NetCfg *c)
 {
     ZeroMemory(c, sizeof(*c));
-    GetPrivateProfileStringW(L"network", L"mode", L"", c->mode, _countof(c->mode), MYPE_INI);
-    GetPrivateProfileStringW(L"network", L"onServices", L"BFE,MpsSvc,nsi,Dhcp,Dnscache,NlaSvc,lmhosts,LanmanWorkstation,WlanSvc", c->on, _countof(c->on), MYPE_INI);
-    GetPrivateProfileStringW(L"network", L"offServices", L"WlanSvc,LanmanWorkstation,lmhosts,NlaSvc,Dhcp", c->off, _countof(c->off), MYPE_INI);
+    GetPrivateProfileStringW(L"network", L"mode", L"", c->mode, _countof(c->mode), WPS_INI);
+    GetPrivateProfileStringW(L"network", L"onServices", L"BFE,MpsSvc,nsi,Dhcp,Dnscache,NlaSvc,lmhosts,LanmanWorkstation,WlanSvc", c->on, _countof(c->on), WPS_INI);
+    GetPrivateProfileStringW(L"network", L"offServices", L"WlanSvc,LanmanWorkstation,lmhosts,NlaSvc,Dhcp", c->off, _countof(c->off), WPS_INI);
     /* bootDisabled: Start=4 in the image (trigger-started otherwise, e.g. Dnscache), switched to demand-start by "net on"
        and back to disabled by "net off" (Dnscache refuses SERVICE_STOP by design: it then stays running, without IP) */
-    GetPrivateProfileStringW(L"network", L"bootDisabled", L"", c->bootDis, _countof(c->bootDis), MYPE_INI);
+    GetPrivateProfileStringW(L"network", L"bootDisabled", L"", c->bootDis, _countof(c->bootDis), WPS_INI);
     /* dnsTestName: optional public name resolved after "net on" as a DNS check (empty = only the local computer name) */
-    GetPrivateProfileStringW(L"network", L"dnsTestName", L"", c->dnsName, _countof(c->dnsName), MYPE_INI);
-    c->wait = GetPrivateProfileIntW(L"network", L"waitSeconds", 60, MYPE_INI);
+    GetPrivateProfileStringW(L"network", L"dnsTestName", L"", c->dnsName, _countof(c->dnsName), WPS_INI);
+    c->wait = GetPrivateProfileIntW(L"network", L"waitSeconds", 60, WPS_INI);
     if (c->wait < 5) c->wait = 5;
     if (c->wait > 600) c->wait = 600;
 }
@@ -124,7 +124,7 @@ static DWORD RunWait(const wchar_t *cmdline, DWORD timeoutMs, BOOL *timedOut)
     if (timedOut) *timedOut = FALSE;
     wcsncpy_s(line, _countof(line), cmdline, _TRUNCATE);
     sa.nLength = sizeof(sa); sa.lpSecurityDescriptor = NULL; sa.bInheritHandle = TRUE;
-    CreateDirectoryW(MYPE_LOGDIR, NULL);
+    CreateDirectoryW(WPS_LOGDIR, NULL);
     out = CreateFileW(CMDLOG, FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE, &sa, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
     if (out != INVALID_HANDLE_VALUE) {
         SYSTEMTIME t;
@@ -415,7 +415,7 @@ static int NetInstallNics(void)
         if (!net) continue;
         if (!SetupDiGetDeviceRegistryPropertyW(di, &dd, SPDRP_DEVICEDESC, NULL, (PBYTE)fn, sizeof(fn), NULL)) fn[0] = 0;
         if (DiInstallDevice(NULL, di, &dd, NULL, 0, &reboot)) { done++; Log(L"net: network controller %s [%s] (problem %lu): driver installed from the driver store%s", fn, id, prob, reboot ? L" (reboot requested)" : L""); }
-        else Log(L"net: network controller %s [%s] (problem %lu): no driver installed, err=0x%08lx (no matching driver in MyPE?)", fn, id, prob, GetLastError());
+        else Log(L"net: network controller %s [%s] (problem %lu): no driver installed, err=0x%08lx (no matching driver in this image?)", fn, id, prob, GetLastError());
     }
     SetupDiDestroyDeviceInfoList(di);
     return done;
@@ -537,7 +537,7 @@ static int NetOn(BOOL quiet)
     NetLoadCfg(&c);
     if (!NetManual(&c)) {
         Log(L"net on: refused, network.mode='%s' (networking is not part of this image)", c.mode);
-        if (!quiet) Message(L"Networking is not included in this MyPE build (network mode '%s').", c.mode[0] ? c.mode : L"full-off");
+        if (!quiet) Message(L"Networking is not included in this build (network mode '%s').", c.mode[0] ? c.mode : L"full-off");
         return NRC_NOTMANUAL;
     }
     if (!(lock = NetLock())) { Log(L"net on: another network operation is running"); if (!quiet) Message(L"A network operation is already running. Please wait."); return NRC_BUSY; }
@@ -585,7 +585,7 @@ static int NetOn(BOOL quiet)
     NetUnlock(lock);
     if (!quiet) {
         if (n == 0)
-            Message(L"Network is ON, but no network adapter was found.\n\nThe network card or Wi-Fi card probably needs a driver that is not in MyPE "
+            Message(L"Network is ON, but no network adapter was found.\n\nThe network card or Wi-Fi card probably needs a driver that is not in this image "
                     L"(it can be exported from the installed Windows, like the display driver).%s%s",
                     failed[0] ? L"\n\nServices that did not start: " : L"", failed);
         else if (!leases)
@@ -608,7 +608,7 @@ static int NetOff(BOOL quiet, BOOL boot)
     NetLoadCfg(&c);
     if (!NetManual(&c)) {
         Log(L"net off%s: network.mode='%s' - nothing to switch off", boot ? L" /boot" : L"", c.mode);
-        if (!quiet && !boot) Message(L"Networking is not included in this MyPE build (network mode '%s').", c.mode[0] ? c.mode : L"full-off");
+        if (!quiet && !boot) Message(L"Networking is not included in this build (network mode '%s').", c.mode[0] ? c.mode : L"full-off");
         return NRC_NOTMANUAL;
     }
     if (!(lock = NetLock())) { Log(L"net off: another network operation is running"); if (!quiet) Message(L"A network operation is already running. Please wait."); return NRC_BUSY; }
@@ -647,7 +647,7 @@ static int NetOff(BOOL quiet, BOOL boot)
     NetUnlock(lock);
     if (!quiet && !boot) {
         if (rcode == NRC_OK) Message(L"Network is OFF.");
-        else Message(L"Network was switched off, but the check failed:\nIPv4 addresses: %s\nservices still running: %s\n\nSee X:\\MyPE\\logs\\mypeui.log.", list[0] ? list : L"none", running[0] ? running : L"none");
+        else Message(L"Network was switched off, but the check failed:\nIPv4 addresses: %s\nservices still running: %s\n\nSee logs\\winpe-shellui.log next to WinPE-ShellUI.exe.", list[0] ? list : L"none", running[0] ? running : L"none");
     }
     return rcode;
 }
@@ -662,7 +662,7 @@ static int NetState(wchar_t *ips, size_t cch)
     NetGetState(s, _countof(s));
     NetIPv4(&leases, ips, cch);
     if (!_wcsicmp(s, L"turning-on") || !_wcsicmp(s, L"turning-off")) {
-        /* only while an operation really runs: a MyPEUI killed during "net on/off" leaves the state behind
+        /* only while an operation really runs: a WinPE-ShellUI killed during "net on/off" leaves the state behind
            (its mutex is then free or abandoned) -> judge by the real state below */
         HANDLE m = NetLock();
         if (!m) return !_wcsicmp(s, L"turning-on") ? NS_TURNING_ON : NS_TURNING_OFF;
@@ -709,11 +709,11 @@ int NetCommand(int argc, wchar_t **argv)
         return st;
     }
     Log(L"net: unknown verb '%s'", verb);
-    if (!quiet) Message(L"MyPEUI.exe net on|off|toggle|status [/quiet]");
+    if (!quiet) Message(L"WinPE-ShellUI.exe net on|off|toggle|status [/quiet]");
     return 2;
 }
 
-/* starts "MyPEUI.exe <args>" (same exe), returns the process handle or NULL */
+/* starts "WinPE-ShellUI.exe <args>" (same exe), returns the process handle or NULL */
 static HANDLE SpawnSelf(const wchar_t *args)
 {
     wchar_t exe[MAX_PATH], line[MAX_PATH + 128];
@@ -840,7 +840,7 @@ static void TrayUpdate(BOOL force)
     wchar_t title[320];
     int st = NetState(T.ips, _countof(T.ips));
     if (T.op && WaitForSingleObject(T.op, 0) == WAIT_TIMEOUT) st = T.opWant == NS_ON ? NS_TURNING_ON : NS_TURNING_OFF;
-    _snwprintf_s(title, _countof(title), _TRUNCATE, L"MyPE network: %s %s", s_stateName[st], T.ips);
+    _snwprintf_s(title, _countof(title), _TRUNCATE, L"Network: %s %s", s_stateName[st], T.ips);
     SetWindowTextW(T.hwnd, title);
     if (st == T.state && T.added && !force) return;
     if (st != T.state) Log(L"tray-net: state %s -> %s [%s]", s_stateName[T.state], s_stateName[st], T.ips);
@@ -866,7 +866,7 @@ static void TrayBalloon(const wchar_t *text)
     if (!T.added) return;
     ZeroMemory(&nd, sizeof(nd));
     nd.cbSize = sizeof(nd); nd.hWnd = T.hwnd; nd.uID = 1; nd.uFlags = NIF_INFO; nd.dwInfoFlags = NIIF_INFO;
-    wcsncpy_s(nd.szInfoTitle, _countof(nd.szInfoTitle), L"MyPE network", _TRUNCATE);
+    wcsncpy_s(nd.szInfoTitle, _countof(nd.szInfoTitle), L"Network", _TRUNCATE);
     wcsncpy_s(nd.szInfo, _countof(nd.szInfo), text, _TRUNCATE);
     Shell_NotifyIconW(NIM_MODIFY, &nd);
 }
@@ -957,7 +957,7 @@ int NetTray(void)
     if (!RegisterClassExW(&wc)) { Log(L"tray-net: RegisterClass failed err=%lu", GetLastError()); return 1; }
     T.taskbarCreated = RegisterWindowMessageW(L"TaskbarCreated");
     /* hidden top-level window (not HWND_MESSAGE: TaskbarCreated is broadcast to top-level windows only) */
-    T.hwnd = CreateWindowExW(WS_EX_TOOLWINDOW, TRAY_CLASS, L"MyPE network", WS_POPUP, 0, 0, 0, 0, NULL, NULL, wc.hInstance, NULL);
+    T.hwnd = CreateWindowExW(WS_EX_TOOLWINDOW, TRAY_CLASS, L"Network", WS_POPUP, 0, 0, 0, 0, NULL, NULL, wc.hInstance, NULL);
     if (!T.hwnd) { Log(L"tray-net: CreateWindow failed err=%lu", GetLastError()); return 1; }
     Log(L"tray-net: started (hwnd %p)", (void *)T.hwnd);
     TrayUpdate(TRUE);
@@ -1055,7 +1055,7 @@ static void WifiOpen(void)
     DWORD ver = 0, rc;
     PWLAN_INTERFACE_INFO_LIST il = NULL;
     if (!N.wh) {
-        if (!WlanLoad()) { wcsncpy_s(N.wifiMsg, _countof(N.wifiMsg), L"Wi-Fi is not available: this MyPE image has no WLAN components.", _TRUNCATE); return; }
+        if (!WlanLoad()) { wcsncpy_s(N.wifiMsg, _countof(N.wifiMsg), L"Wi-Fi is not available: this image has no WLAN components.", _TRUNCATE); return; }
         rc = W.Open(2, NULL, &ver, &N.wh);
         if (rc != ERROR_SUCCESS) {
             N.wh = NULL;
@@ -1077,7 +1077,7 @@ static void WifiOpen(void)
         }
         W.Free(il);
     } else Log(L"network: WlanEnumInterfaces rc=%lu", rc);
-    if (!N.haveIf) wcsncpy_s(N.wifiMsg, _countof(N.wifiMsg), L"No Wi-Fi adapter (WLAN interface) found. If this PC has Wi-Fi, its driver is probably not in MyPE.", _TRUNCATE);
+    if (!N.haveIf) wcsncpy_s(N.wifiMsg, _countof(N.wifiMsg), L"No Wi-Fi adapter (WLAN interface) found. If this PC has Wi-Fi, its driver is probably not in this image.", _TRUNCATE);
     else _snwprintf_s(N.wifiMsg, _countof(N.wifiMsg), _TRUNCATE, L"Wi-Fi adapter: %s", N.ifDesc);
 }
 
@@ -1152,7 +1152,7 @@ static void WifiConnect(void)
     if (!w->secured) { auth = L"open"; enc = L"none"; }
     else if (w->auth == DOT11_AUTH_ALGO_RSNA_PSK) { auth = L"WPA2PSK"; enc = w->cipher == DOT11_CIPHER_ALGO_TKIP ? L"TKIP" : L"AES"; }
     else if ((int)w->auth == (int)DOT11_AUTH_ALGO_WPA3_SAE) { auth = L"WPA3SAE"; enc = L"AES"; }
-    else { _snwprintf_s(st, _countof(st), _TRUNCATE, L"'%s' uses %s, which MyPE cannot connect to.", w->name, AuthText(w)); NSetText(IDC_N_WIFISTATUS, st); return; }
+    else { _snwprintf_s(st, _countof(st), _TRUNCATE, L"'%s' uses %s, which WinPE-Shell cannot connect to.", w->name, AuthText(w)); NSetText(IDC_N_WIFISTATUS, st); return; }
     GetWindowTextW(NCtl(IDC_N_PW), pw, _countof(pw));
     plen = wcslen(pw);
     if (w->secured) {
@@ -1163,7 +1163,7 @@ static void WifiConnect(void)
     hex[0] = 0;
     for (i = 0; i < w->ssid.uSSIDLength && i < 32; i++) { wchar_t b[4]; _snwprintf_s(b, _countof(b), _TRUNCATE, L"%02X", w->ssid.ucSSID[i]); wcscat_s(hex, _countof(hex), b); }
     /* temporary profile, in memory only (wlan_connection_mode_temporary_profile is never stored) */
-    wcscpy_s(xml, _countof(xml), L"<?xml version=\"1.0\"?><WLANProfile xmlns=\"http://www.microsoft.com/networking/WLAN/profile/v1\"><name>MyPE-temporary</name><SSIDConfig><SSID><hex>");
+    wcscpy_s(xml, _countof(xml), L"<?xml version=\"1.0\"?><WLANProfile xmlns=\"http://www.microsoft.com/networking/WLAN/profile/v1\"><name>WinPE-Shell-temporary</name><SSIDConfig><SSID><hex>");
     wcscat_s(xml, _countof(xml), hex);
     wcscat_s(xml, _countof(xml), L"</hex></SSID></SSIDConfig><connectionType>ESS</connectionType><connectionMode>manual</connectionMode><MSM><security><authEncryption><authentication>");
     wcscat_s(xml, _countof(xml), auth);
@@ -1218,7 +1218,7 @@ static void NRefresh(BOOL forceList)
                      a[i].dhcp[0] ? L", DHCP " : L"", a[i].dhcp, a[i].dns[0] ? L", DNS " : L"", a[i].dns);
         if (wcslen(t) + wcslen(line) < _countof(t)) wcscat_s(t, _countof(t), line);
     }
-    if (!n) wcscpy_s(t, _countof(t), on ? L"No network adapter found (its driver may be missing in MyPE)." : L"Adapters appear when the network is ON.");
+    if (!n) wcscpy_s(t, _countof(t), on ? L"No network adapter found (its driver may be missing in this image)." : L"Adapters appear when the network is ON.");
     NSetText(IDC_N_ADAPTERS, t);
     /* Wi-Fi */
     if (!on) {
@@ -1397,7 +1397,7 @@ int NetWindow(const wchar_t *uri)
     NetLoadCfg(&c);
     if (!NetManual(&c)) {
         Log(L"network: window refused, network.mode='%s'", c.mode);
-        Message(L"Networking is not included in this MyPE build (network mode '%s').", c.mode[0] ? c.mode : L"full-off");
+        Message(L"Networking is not included in this build (network mode '%s').", c.mode[0] ? c.mode : L"full-off");
         if (mutex) CloseHandle(mutex);
         return 0;
     }

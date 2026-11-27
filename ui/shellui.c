@@ -1,29 +1,30 @@
 /*
- * MyPEUI.exe - small MyPE UI utility (README.md). Own code, no third-party parts.
- * GUI subsystem, static CRT, Win32/GDI only. Sources: MyPEUI.c, display.c, dispcfg.c, brightness.c, net.c (mypeui.h).
+ * WinPE-ShellUI.exe - WinPE-Shell UI utility (README.md). Own code, no third-party parts.
+ * GUI subsystem, static CRT, Win32/GDI only. Sources: shellui.c, display.c, dispcfg.c, brightness.c, net.c, scale.c,
+ * vol.c (shellui.h).
  *
- *   MyPEUI.exe shutdown [/dryrun]       shutdown dialog (keyboard focus on Power)
- *   MyPEUI.exe restart  [/dryrun]       shutdown dialog (keyboard focus on Restart)
- *   MyPEUI.exe uri <uri>                handler for the ms-settings: and ms-availablenetworks: protocols
- *   MyPEUI.exe open <feature> [args]    display [/select N] | network | sysinfo
- *   MyPEUI.exe net on|off|toggle|status [/quiet] [/boot]   network control (net.c, spec 14)
- *   MyPEUI.exe tray-net                 network tray icon (net.c)
- *   MyPEUI.exe scale <percent> [/norestart]   live display scale on every display (scale.c), shell restart if needed
- *   MyPEUI.exe tray-vol                 volume tray icon (vol.c)
+ *   WinPE-ShellUI.exe shutdown [/dryrun]       shutdown dialog (keyboard focus on Power)
+ *   WinPE-ShellUI.exe restart  [/dryrun]       shutdown dialog (keyboard focus on Restart)
+ *   WinPE-ShellUI.exe uri <uri>                handler for the ms-settings: and ms-availablenetworks: protocols
+ *   WinPE-ShellUI.exe open <feature> [args]    display [/select N] | network | sysinfo
+ *   WinPE-ShellUI.exe net on|off|toggle|status [/quiet] [/boot]   network control (net.c, spec 14)
+ *   WinPE-ShellUI.exe tray-net                 network tray icon (net.c)
+ *   WinPE-ShellUI.exe scale <percent> [/norestart]   live display scale on every display (scale.c), shell restart if needed
+ *   WinPE-ShellUI.exe tray-vol                 volume tray icon (vol.c)
  *
  * Shutdown dialog: semi-opaque full-screen overlay on every monitor, two round buttons on the primary one.
  *   Restart -> wpeutil Reboot, Power -> wpeutil Shutdown. Esc, click outside the buttons or a display change = cancel.
  *   /dryrun: the wpeutil call is replaced by a "DRYRUN ..." line in the log (VM tests).
  *
- * Features are switched in X:\MyPE\config\mypeui.ini   [features]  <name>=<value>:
+ * Features are switched in <exe dir>\config\winpe-shellui.ini   [features]  <name>=<value>:
  *   enabled          the built-in window (display = spec 5, display.c; ms-settings:display / ms-settings:screenrotation;
  *                    network = spec 14, net.c; ms-availablenetworks:, ms-settings:network*)
  *   (empty)          short "not available yet" message (system info = spec 13 is not built yet; network if the image has none)
  *   <command line>   that program; the URI, if any, is appended as one argument
  *
- * Log: X:\MyPE\logs\mypeui.log
+ * Log: <exe dir>\logs\winpe-shellui.log (file locations: WpsPath, shellui.h)
  */
-#include "mypeui.h"
+#include "shellui.h"
 #include "scale.h"
 #include <shellapi.h>
 #include <stdlib.h>
@@ -32,17 +33,44 @@
 #include <wchar.h>
 #include <math.h>
 
-#define INI       MYPE_INI
-#define LOGDIR    MYPE_LOGDIR
-#define LOGFILE   MYPE_LOGFILE
-#define OV_CLASS  L"MyPE.ShutdownOverlay"
-#define OV_MUTEX  L"Local\\MyPE.ShutdownOverlay"
-#define MSG_TITLE MYPE_MSG_TITLE
+#define INI       WPS_INI
+#define LOGDIR    WPS_LOGDIR
+#define LOGFILE   WPS_LOGFILE
+#define OV_CLASS  L"WinPE-Shell.ShutdownOverlay"
+#define OV_MUTEX  L"Local\\WinPE-Shell.ShutdownOverlay"
+#define MSG_TITLE WPS_MSG_TITLE
 #define MAXOV     16
 #define BG_ALPHA  200          /* overlay opacity 0..255 */
 
 static int g_argc;
 static wchar_t **g_argv;
+
+/* file locations relative to the exe folder; computed once (InitOnce: the brightness / network workers log too) */
+static wchar_t s_paths[WPS_P_COUNT][MAX_PATH];
+static INIT_ONCE s_pathsOnce = INIT_ONCE_STATIC_INIT;
+static BOOL CALLBACK InitPaths(PINIT_ONCE once, PVOID param, PVOID *ctx)
+{
+    wchar_t *dir = s_paths[WPS_P_DIR], *slash;
+    (void)once; (void)param; (void)ctx;
+    if (!GetModuleFileNameW(NULL, dir, MAX_PATH) || !(slash = wcsrchr(dir, L'\\'))) wcscpy_s(dir, MAX_PATH, L"X:\\");
+    else slash[0] = 0;                                    /* no trailing backslash */
+    _snwprintf_s(s_paths[WPS_P_INI], MAX_PATH, _TRUNCATE, L"%s\\config\\winpe-shellui.ini", dir);
+    if (GetFileAttributesW(s_paths[WPS_P_INI]) == INVALID_FILE_ATTRIBUTES) {   /* former name, older images */
+        wchar_t old[MAX_PATH];
+        _snwprintf_s(old, MAX_PATH, _TRUNCATE, L"%s\\config\\mypeui.ini", dir);
+        if (GetFileAttributesW(old) != INVALID_FILE_ATTRIBUTES) wcscpy_s(s_paths[WPS_P_INI], MAX_PATH, old);
+    }
+    _snwprintf_s(s_paths[WPS_P_DISPJSON], MAX_PATH, _TRUNCATE, L"%s\\config\\display.json", dir);
+    _snwprintf_s(s_paths[WPS_P_LOGDIR], MAX_PATH, _TRUNCATE, L"%s\\logs", dir);
+    _snwprintf_s(s_paths[WPS_P_LOGFILE], MAX_PATH, _TRUNCATE, L"%s\\logs\\winpe-shellui.log", dir);
+    _snwprintf_s(s_paths[WPS_P_CMDLOG], MAX_PATH, _TRUNCATE, L"%s\\logs\\net-commands.log", dir);
+    return TRUE;
+}
+const wchar_t *WpsPath(int which)
+{
+    InitOnceExecuteOnce(&s_pathsOnce, InitPaths, NULL, NULL);
+    return which >= 0 && which < WPS_P_COUNT ? s_paths[which] : s_paths[WPS_P_DIR];
+}
 
 void Log(const wchar_t *fmt, ...)
 {
@@ -58,11 +86,10 @@ void Log(const wchar_t *fmt, ...)
     _vsnwprintf_s(msg, _countof(msg), _TRUNCATE, fmt, ap);
     va_end(ap);
     GetLocalTime(&t);
-    _snwprintf_s(line, _countof(line), _TRUNCATE, L"%04u-%02u-%02u %02u:%02u:%02u.%03u MyPEUI[%lu] %s\r\n",
+    _snwprintf_s(line, _countof(line), _TRUNCATE, L"%04u-%02u-%02u %02u:%02u:%02u.%03u WinPE-ShellUI[%lu] %s\r\n",
                  t.wYear, t.wMonth, t.wDay, t.wHour, t.wMinute, t.wSecond, t.wMilliseconds, GetCurrentProcessId(), msg);
     len = WideCharToMultiByte(CP_UTF8, 0, line, -1, utf8, sizeof(utf8), NULL, NULL);
     if (len <= 1) return;
-    CreateDirectoryW(L"X:\\MyPE", NULL);
     CreateDirectoryW(LOGDIR, NULL);
     h = CreateFileW(LOGFILE, FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
     if (h == INVALID_HANDLE_VALUE) return;
@@ -115,7 +142,7 @@ static BOOL RunPlugged(const wchar_t *feature, const wchar_t *uri, BOOL *builtin
     if (!GetPrivateProfileStringW(L"features", feature, L"", cmd, _countof(cmd), INI) || !cmd[0]) return FALSE;
     if (!_wcsicmp(cmd, L"enabled")) {
         if (!_wcsicmp(feature, L"display") || !_wcsicmp(feature, L"network")) { *builtin = TRUE; return TRUE; }
-        Log(L"feature %s: 'enabled' but no built-in window in this MyPEUI version", feature);
+        Log(L"feature %s: 'enabled' but no built-in window in this WinPE-ShellUI version", feature);
         return FALSE;
     }
     if (uri && uri[0]) {
@@ -126,7 +153,7 @@ static BOOL RunPlugged(const wchar_t *feature, const wchar_t *uri, BOOL *builtin
         for (k = 0; uri[k]; k++)
             if (uri[k] == L'"' || uri[k] < 0x20) {
                 Log(L"feature %s: URI refused (quote or control character): %s", feature, uri);
-                Message(L"MyPE refused this link (invalid characters).");
+                Message(L"WinPE-Shell refused this link (invalid characters).");
                 return TRUE;
             }
         wcsncpy_s(u, _countof(u), uri, _TRUNCATE);
@@ -138,7 +165,7 @@ static BOOL RunPlugged(const wchar_t *feature, const wchar_t *uri, BOOL *builtin
     si.cb = sizeof(si);
     if (!CreateProcessW(NULL, line, NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi)) {
         Log(L"feature %s: start FAILED err=%lu: %s", feature, GetLastError(), line);
-        Message(L"MyPE could not start the handler for '%s'.\n\n%s", feature, line);
+        Message(L"WinPE-Shell could not start the handler for '%s'.\n\n%s", feature, line);
         return TRUE;
     }
     Log(L"feature %s -> pid %lu: %s", feature, pi.dwProcessId, line);
@@ -158,17 +185,17 @@ static int OpenFeature(const wchar_t *feature, const wchar_t *uri)
     }
     Log(L"feature %s: placeholder (uri=%s)", feature, uri ? uri : L"");
     if (!_wcsicmp(feature, L"display"))
-        Message(L"Display settings are not available yet in MyPE.\n\n(%s)", uri && uri[0] ? uri : L"display");
+        Message(L"Display settings are not available yet in this image.\n\n(%s)", uri && uri[0] ? uri : L"display");
     else if (!_wcsicmp(feature, L"network"))
-        Message(L"Network settings are not available in this MyPE build.\nNetworking is not included in the image.\n\n(%s)", uri && uri[0] ? uri : L"network");
+        Message(L"Network settings are not available in this build.\nNetworking is not included in the image.\n\n(%s)", uri && uri[0] ? uri : L"network");
     else if (!_wcsicmp(feature, L"sysinfo"))
-        Message(L"System properties are not available yet in MyPE.");
+        Message(L"System properties are not available yet in this image.");
     else
-        Message(L"'%s' is not available in MyPE.", feature);
+        Message(L"'%s' is not available in this image.", feature);
     return 0;
 }
 
-/* ms-settings:<page>[?query] and ms-availablenetworks: -> feature name, or NULL (= not available in MyPE) */
+/* ms-settings:<page>[?query] and ms-availablenetworks: -> feature name, or NULL (= not available in this image) */
 static const wchar_t *UriFeature(const wchar_t *uri)
 {
     wchar_t u[512], *q, *page;
@@ -190,7 +217,7 @@ static int HandleUri(const wchar_t *uri)
     const wchar_t *f = UriFeature(uri);
     Log(L"uri '%s' -> %s", uri, f ? f : L"(not available)");
     if (f) return OpenFeature(f, uri);
-    Message(L"'%s' is not available in MyPE.", uri);
+    Message(L"'%s' is not available in this image.", uri);
     return 0;
 }
 
@@ -412,7 +439,7 @@ static void DoAction(int i)
     Log(L"action %s: %s", g_btn[i].label, line);
     if (!CreateProcessW(NULL, line, NULL, NULL, FALSE, CREATE_NO_WINDOW, NULL, NULL, &si, &pi)) {
         Log(L"wpeutil start FAILED err=%lu", GetLastError());
-        Message(L"MyPE could not run:\n%s\n\nError %lu.", line, GetLastError());
+        Message(L"WinPE-Shell could not run:\n%s\n\nError %lu.", line, GetLastError());
     } else {
         CloseHandle(pi.hThread);
         if (WaitForSingleObject(pi.hProcess, 60000) == WAIT_OBJECT_0) GetExitCodeProcess(pi.hProcess, &rc);
@@ -546,7 +573,7 @@ static int ShutdownDialog(BOOL focusRestart)
     for (i = 0; i < g_nov; i++) {
         Overlay *o = &g_ov[i];
         o->hwnd = CreateWindowExW(WS_EX_LAYERED | WS_EX_TOPMOST | WS_EX_TOOLWINDOW, OV_CLASS,
-                                  o->primary ? L"MyPE Shutdown" : L"", WS_POPUP,
+                                  o->primary ? L"WinPE-Shell Shutdown" : L"", WS_POPUP,
                                   o->rc.left, o->rc.top, o->rc.right - o->rc.left, o->rc.bottom - o->rc.top,
                                   NULL, NULL, hi, NULL);
         if (!o->hwnd || !CreateBuffer(o)) { Log(L"overlay window %d failed err=%lu", i, GetLastError()); return 1; }
@@ -598,7 +625,7 @@ static int ScaleCommand(int argc, wchar_t **argv)
     if (changed && !norestart && desk) {
         Log(L"scale: restarting the shell for the new scale");
         Sleep(500);
-        PostMessageW(desk, MYPE_PM_RESTART_SHELL, 0, 0);
+        PostMessageW(desk, WPS_PM_RESTART_SHELL, 0, 0);
     }
     return ok ? 0 : 1;
 }
@@ -613,7 +640,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE hPrev, LPWSTR cmdLine, int nShow)
     SetDpiAware();
     g_argc = argc; g_argv = argv;
     if (!argv || argc < 2) {
-        Message(L"MyPEUI.exe shutdown|restart [/dryrun]\nMyPEUI.exe uri <uri>\nMyPEUI.exe open display [/select N] | network | sysinfo\nMyPEUI.exe net on|off|toggle|status [/quiet]\nMyPEUI.exe tray-net\nMyPEUI.exe tray-vol\nMyPEUI.exe scale <percent> [/norestart]");
+        Message(L"WinPE-ShellUI.exe shutdown|restart [/dryrun]\nWinPE-ShellUI.exe uri <uri>\nWinPE-ShellUI.exe open display [/select N] | network | sysinfo\nWinPE-ShellUI.exe net on|off|toggle|status [/quiet]\nWinPE-ShellUI.exe tray-net\nWinPE-ShellUI.exe tray-vol\nWinPE-ShellUI.exe scale <percent> [/norestart]");
         if (argv) LocalFree(argv);
         return 2;
     }
@@ -629,7 +656,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE hPrev, LPWSTR cmdLine, int nShow)
     else if (!_wcsicmp(cmd, L"scale")) rc = ScaleCommand(argc, argv);
     else if (!_wcsicmp(cmd, L"tray-vol")) rc = VolTray();
     else if (!_wcsnicmp(cmd, L"ms-settings:", 12) || !_wcsnicmp(cmd, L"ms-availablenetworks:", 21)) rc = HandleUri(cmd);
-    else { Log(L"unknown command '%s'", cmd); Message(L"MyPEUI: unknown command '%s'.", cmd); rc = 2; }
+    else { Log(L"unknown command '%s'", cmd); Message(L"WinPE-ShellUI: unknown command '%s'.", cmd); rc = 2; }
     LocalFree(argv);
     return rc;
 }

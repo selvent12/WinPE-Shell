@@ -8,7 +8,7 @@
  */
 #ifndef BRIGHTNESS_H
 #define BRIGHTNESS_H
-#include "mypeui.h"
+#include "shellui.h"
 
 #define BRI_MAX 8
 enum { BRI_WMI = 1, BRI_DDC = 2 };

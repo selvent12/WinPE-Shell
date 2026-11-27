@@ -1,12 +1,13 @@
 <#
 .SYNOPSIS
   Runs INSIDE the WinPE image: system information as text, shown in Notepad.
-  Started by MyPEUI.exe open sysinfo (mypeui.ini [features] sysinfo=<this script>): Start menu "System information",
-  desktop menu "System properties". Report: X:\MyPE\logs\sysinfo.txt (also kept for later reading).
+  Started by WinPE-ShellUI.exe open sysinfo (winpe-shellui.ini [features] sysinfo=<this script>): Start menu "System information",
+  desktop menu "System properties". Report: <base>\logs\sysinfo.txt (<base> = the folder above this script's bin\,
+  X:\MyPE in MyPE; also kept for later reading).
   Only reads (CIM/WMI, registry, Storage cmdlets); every section is independent: a failing source is reported, the rest
   still comes.
 #>
-param([string]$Out = 'X:\MyPE\logs\sysinfo.txt', [switch]$NoShow)
+param([string]$Out = (Join-Path (Split-Path $PSScriptRoot -Parent) 'logs\sysinfo.txt'), [switch]$NoShow)
 $ErrorActionPreference = 'Stop'
 $lines = New-Object System.Collections.Generic.List[string]
 function Add([string]$s = '') { $lines.Add($s) }
@@ -17,7 +18,7 @@ function Section([string]$title, [scriptblock]$body) {
     try { & $body } catch { Add "  (not available: $($_.Exception.Message))" }
 }
 
-Add "MyPE - system information ($(Get-Date -Format 'yyyy-MM-dd HH:mm:ss'))"
+Add "System information ($(Get-Date -Format 'yyyy-MM-dd HH:mm:ss'))"
 
 Section 'System' {
     $cs = Get-CimInstance Win32_ComputerSystem
