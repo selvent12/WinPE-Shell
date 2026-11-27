@@ -30,6 +30,15 @@ Section 'System' {
     Add ("  Started:       {0:yyyy-MM-dd HH:mm}  (up {1}h {2:D2}m)" -f $os.LastBootUpTime, [int][Math]::Floor($up.TotalHours), $up.Minutes)
 }
 
+Section 'Time' {   # PC test 2026-11-27: PE 2 h behind the BIOS clock on one PC; what does Windows think?
+    $tz = Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\TimeZoneInformation' -ErrorAction SilentlyContinue
+    $now = Get-Date
+    Add ("  Local time:    {0:yyyy-MM-dd HH:mm:ss}" -f $now)
+    Add ("  UTC:           {0:yyyy-MM-dd HH:mm:ss}" -f $now.ToUniversalTime())
+    Add "  Time zone:     $([TimeZoneInfo]::Local.Id) ($([TimeZoneInfo]::Local.BaseUtcOffset)), registry key '$($tz.TimeZoneKeyName)', Bias $($tz.Bias), ActiveTimeBias $($tz.ActiveTimeBias)"
+    Add "  BIOS clock:    read as $(if ($tz.RealTimeIsUniversal -eq 1) { 'UTC (RealTimeIsUniversal=1)' } else { 'local time (RealTimeIsUniversal=0)' }) - compare with the time shown in the BIOS setup"
+}
+
 Section 'Firmware' {
     $bios = Get-CimInstance Win32_BIOS
     $fw = $env:firmware_type

@@ -1029,7 +1029,7 @@ static void CreateFonts(void)
 
 static BOOL CALLBACK SetFontCb(HWND c, LPARAM lp) { SendMessageW(c, WM_SETFONT, (WPARAM)lp, TRUE); return TRUE; }
 
-static void Place(int id, int x, int y, int w, int h) { SetWindowPos(Ctl(id), NULL, S(x), S(y) - g.scrollY, S(w), S(h), SWP_NOZORDER | SWP_NOACTIVATE); }
+static void Place(int id, int x, int y, int w, int h) { SetWindowPos(Ctl(id), NULL, S(x), S(y) - g.scrollY, S(w), S(h), SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOCOPYBITS); }
 
 static int ClientWidth(void) { return 580; }
 
@@ -1086,7 +1086,9 @@ static void Layout(void)
         if (x + ww > mi.rcWork.right) x = max(mi.rcWork.left, mi.rcWork.right - ww);
         SetWindowPos(g.hwnd, NULL, x, yy, ww, wh, SWP_NOZORDER | SWP_NOACTIVATE);
     }
-    InvalidateRect(g.hwnd, NULL, TRUE);
+    /* controls moved (scroll, scale, rows shown / hidden): repaint the window and every control, else the old
+       label pixels stay and rows look doubled (PC test 2026-11-27, 150 % / 175 % with the scroll bar) */
+    RedrawWindow(g.hwnd, NULL, NULL, RDW_ERASE | RDW_INVALIDATE | RDW_ALLCHILDREN | RDW_FRAME);
 }
 
 static void ScrollTo(int pos)

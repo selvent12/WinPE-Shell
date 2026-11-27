@@ -157,6 +157,31 @@ BOOL Scale_Query(int *curPct, int *maxPct)
     return TRUE;
 }
 
+/* Desktop icon spacing for a scale: the desktop's shell view takes it from the system icon metrics, which Windows
+   computes once for the session's DPI, so after a live scale change icons and labels grew but kept the old spacing and
+   overlapped (PC test 2026-11-27, 4K at 175 %). Windows' default is 75 px per icon cell at 100 %. */
+/* Windows keeps the spacing in twips, converted from the pixels given with THIS process's system DPI, and the desktop
+   turns it back into pixels with the session's DPI (LogPixels, fixed at logon) - VM 2026-11-27: 113 px set from a
+   process started at 100 % gave 170 px on the desktop. So the pixels passed here are
+   75 * scale * (this process's system DPI) / (session DPI). */
+static void IconSpacing(int pct)
+{
+    typedef UINT (WINAPI *Fn)(void);
+    HMODULE u = GetModuleHandleW(L"user32.dll");
+    Fn f = u ? (Fn)(void *)GetProcAddress(u, "GetDpiForSystem") : NULL;
+    UINT sys = f ? f() : 96, logPx = 96;
+    DWORD v = 0, cb = sizeof(v);
+    int px;
+    BOOL h, vv;
+    if (RegGetValueW(HKEY_CURRENT_USER, L"Control Panel\\Desktop", L"LogPixels", RRF_RT_REG_DWORD, NULL, &v, &cb) == ERROR_SUCCESS && v >= 96) logPx = v;
+    if (!sys) sys = 96;
+    px = MulDiv(75 * pct, (int)sys, 100 * (int)logPx);
+    h = SystemParametersInfoW(SPI_ICONHORIZONTALSPACING, (UINT)px, NULL, SPIF_UPDATEINIFILE | SPIF_SENDCHANGE);
+    vv = SystemParametersInfoW(SPI_ICONVERTICALSPACING, (UINT)px, NULL, SPIF_UPDATEINIFILE | SPIF_SENDCHANGE);
+    Log(L"scale: desktop icon spacing for %d%%: %d px at this process's %u dpi, session %u dpi (horizontal %s, vertical %s)",
+        pct, px, sys, logPx, h ? L"ok" : L"FAILED", vv ? L"ok" : L"FAILED");
+}
+
 BOOL Scale_SetAll(int pct, BOOL *changed)
 {
     ScaleSrc src[16];
@@ -194,5 +219,6 @@ BOOL Scale_SetAll(int pct, BOOL *changed)
             cur >= 0 ? g_scaleSteps[cur] : -1, g_scaleSteps[step], pct, g_scaleSteps[max], rc);
         if (rc == ERROR_SUCCESS) *changed = TRUE; else ok = FALSE;
     }
+    IconSpacing(pct);   /* also when nothing changed: the start-up default scale sets it once */
     return ok;
 }
