@@ -168,6 +168,10 @@ LRESULT TaskBar::Init(LPCREATESTRUCT pcs)
 
     _next_id = IDC_FIRST_APP;
 
+    // "x" in the corner of the hovered task button closes that window (idea from PExplorer/WinXShell 0e27747, which
+    // used the toolbar's drop-down arrow; here drawn on the button so it also fits the icon-only win11 buttons)
+    _task_close_button = JCFG2_DEF("JS_TASKBAR", "task_close_button", false).ToBool() != FALSE;
+
     // register the taskbar window as task manager window to make the following call to RegisterShellHookWindow working
     if (g_SetTaskmanWindow)
         (*g_SetTaskmanWindow)(_hwnd);
@@ -266,11 +270,50 @@ int TaskBar::Command(int id, int code)
     TaskBarMap::iterator found = _map.find_id(id);
 
     if (found != _map.end()) {
+        if (_task_close_button) {     // click released on the "x": close the window like its own close button
+            RECT z;
+            Point pt(GetMessagePos());
+            ScreenToClient(_htoolbar, &pt);
+            if (CloseZone(id, &z) && PtInRect(&z, pt)) {
+                PostMessage(found->first, WM_SYSCOMMAND, SC_CLOSE, 0);
+                return 0;
+            }
+        }
         ActivateApp(found);
         return 0;
     }
 
     return super::Command(id, code);
+}
+
+bool TaskBar::CloseZone(int id, RECT *zone) const
+{
+    RECT rc;
+    if (!SendMessage(_htoolbar, TB_GETRECT, id, (LPARAM)&rc))
+        return false;
+    int s = DPI_SX(12), m = DPI_SX(3);
+    if (rc.right - rc.left < 3 * s)     // too narrow (many windows): no "x"
+        return false;
+    SetRect(zone, rc.right - m - s, rc.top + DPI_SY(5), rc.right - m, rc.top + DPI_SY(5) + s);
+    return true;
+}
+
+// the "x" of the hovered button (no separate highlight: the toolbar does not repaint while the mouse moves inside the
+// same button, so it would lag behind)
+void TaskBar::DrawCloseGlyph(HDC hdc, int id)
+{
+    RECT z;
+    if (!CloseZone(id, &z))
+        return;
+    // dark rounded background: the "x" sits on the corner of the icon and was hard to see on it (VM 2026-11-28)
+    W11_FillRound(hdc, z, DPI_SX(3), RGB(45, 45, 45));
+    int in = DPI_SX(3);
+    HPEN pen = CreatePen(PS_SOLID, max(1, DPI_SX(1)), TASKBAR_TEXTCOLOR());
+    HGDIOBJ old = SelectObject(hdc, pen);
+    MoveToEx(hdc, z.left + in, z.top + in, NULL);     LineTo(hdc, z.right - in, z.bottom - in);
+    MoveToEx(hdc, z.right - in - 1, z.top + in, NULL); LineTo(hdc, z.left + in - 1, z.bottom - in);
+    SelectObject(hdc, old);
+    DeleteObject(pen);
 }
 
 int TaskBar::Notify(int id, NMHDR *pnmh)
@@ -311,9 +354,12 @@ int TaskBar::Notify(int id, NMHDR *pnmh)
                     return DrawW11Button(lptbcd);
                 lptbcd->clrText = TASKBAR_TEXTCOLOR();
 #define CDRF_USECDCOLORS 0x00800000
-                return CDRF_USECDCOLORS; //Windows vista later
-                return CDRF_DODEFAULT;
+                // classic buttons: the "x" is drawn after the button
+                return CDRF_USECDCOLORS | (_task_close_button && (lptbcd->nmcd.uItemState & CDIS_HOT) ? CDRF_NOTIFYPOSTPAINT : 0);
             }
+            case CDDS_ITEMPOSTPAINT:
+                DrawCloseGlyph(lptbcd->nmcd.hdc, (int)lptbcd->nmcd.dwItemSpec);
+                return CDRF_DODEFAULT;
             default:
                 return CDRF_DODEFAULT;
             }
@@ -755,6 +801,9 @@ int TaskBar::DrawW11Button(LPNMTBCUSTOMDRAW cd)
     int cx = (rc.left + rc.right) / 2;
     RECT pill = { cx - pw / 2, bg.bottom - ph - DPI_SY(1), cx - pw / 2 + pw, bg.bottom - DPI_SY(1) };
     W11_FillRound(hdc, pill, ph / 2, W11_Color(active ? W11C_ACCENT : W11C_INDICATOR));
+
+    if (_task_close_button && (st & CDIS_HOT))
+        DrawCloseGlyph(hdc, (int)cd->nmcd.dwItemSpec);
 
     return CDRF_SKIPDEFAULT;
 }

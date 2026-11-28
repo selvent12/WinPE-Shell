@@ -76,6 +76,7 @@ static struct {
     volatile LONG briWant, briWantTarget, briWantGen, briQuit, briReprobe;
     LONG briGenUI;              /* probe generation the UI copy (bri/briPct/nbri) belongs to */
     BOOL briShown;
+    BOOL dimOk;                 /* no brightness control: the row dims the screen instead (dim.c) */
     BOOL selectRotation;
 } g;
 
@@ -519,10 +520,13 @@ static void Layout(void);
 static void UpdateBrightnessRow(void)
 {
     int t = g.st.n > 0 ? g.briOf[g.sel] : -1;
-    BOOL show = t >= 0;
+    /* no WMI panel / DDC/CI monitor for this monitor: the same row dims the whole screen (dim.c), 20..100 % */
+    BOOL dim = t < 0 && g.dimOk && g.nbri >= 0;
+    BOOL show = t >= 0 || dim;
     if (show) {
         wchar_t v[16];
-        int pct = g.briPct[t] >= 0 ? g.briPct[t] : 50;
+        int pct = dim ? Dim_Current() : (g.briPct[t] >= 0 ? g.briPct[t] : 50);
+        SendMessageW(Ctl(IDC_BRIGHT), TBM_SETRANGE, FALSE, MAKELONG(dim ? 20 : 0, 100));
         SendMessageW(Ctl(IDC_BRIGHT), TBM_SETPOS, TRUE, pct);
         _snwprintf_s(v, _countof(v), _TRUNCATE, L"%d%%", pct);
         SetWindowTextW(Ctl(IDC_BRIVAL), v);
@@ -1238,12 +1242,20 @@ static LRESULT CALLBACK DisplayProc(HWND h, UINT m, WPARAM wp, LPARAM lp)
             InterlockedExchange(&g.briWantGen, g.briGenUI);
             InterlockedExchange(&g.briWant, pos);
             SetEvent(g.briEvent);
+        } else if ((HWND)lp == Ctl(IDC_BRIGHT) && g.dimOk) {
+            /* screen dimming: live while a dimmer runs; a new dimmer process only when the slider is released */
+            int pos = (int)SendMessageW(Ctl(IDC_BRIGHT), TBM_GETPOS, 0, 0);
+            wchar_t v[16];
+            _snwprintf_s(v, _countof(v), _TRUNCATE, L"%d%%", pos);
+            SetWindowTextW(Ctl(IDC_BRIVAL), v);
+            if (LOWORD(wp) == TB_ENDTRACK || Dim_Current() < 100) Dim_Set(pos);
+            if (LOWORD(wp) == TB_ENDTRACK) Log(L"display: screen dimmed to %d%%", pos);
         }
         return 0;
     case WM_APP_BRI:
         TakeBrightness();
         MapBrightness();
-        if (g.nbri <= 0) Log(L"display: brightness row hidden (no controllable brightness: no WMI panel, no DDC/CI monitor)");
+        if (g.nbri <= 0) Log(L"display: no controllable brightness (no WMI panel, no DDC/CI monitor) - %s", g.dimOk ? L"the row dims the screen" : L"row hidden (screen cannot be dimmed)");
         else {
             int k;
             for (k = 0; k < g.st.n; k++) Log(L"display: brightness for monitor %d: %s", k + 1, g.briOf[k] >= 0 ? Bri_KindName(g.bri[g.briOf[k]].kind) : L"none");
@@ -1316,6 +1328,7 @@ int DisplayWindow(const wchar_t *uri, int argc, wchar_t **argv)
     ZeroMemory(&g, sizeof(g));
     g.hi = GetModuleHandleW(NULL);
     g.briWant = -1; g.briWantTarget = -1; g.nbri = -1;
+    g.dimOk = Dim_Available();
     for (i = 0; i < DC_MAXMON; i++) g.briOf[i] = -1;
     for (i = 0; i < argc; i++) if (!_wcsicmp(argv[i], L"/select") && i + 1 < argc) want = _wtoi(argv[i + 1]) - 1;
     if (uri && !_wcsnicmp(uri, L"ms-settings:screenrotation", 26)) g.selectRotation = TRUE;

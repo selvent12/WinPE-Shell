@@ -83,6 +83,7 @@ protected:
     int         _next_id;
     WindowHandle _last_foreground_wnd;
     int         _last_btn_width;
+    bool        _task_close_button;     ///< JS_TASKBAR.task_close_button: "x" on the hovered task button
     int         _last_btn_count;
     MINIMIZEDMETRICS _mmMetrics_org;
 
@@ -101,6 +102,8 @@ protected:
     void    Refresh();
     void    ResizeButtons();
     int     DrawW11Button(LPNMTBCUSTOMDRAW cd);
+    bool    CloseZone(int id, RECT *zone) const;    ///< the "x" area of a task button (toolbar client coords)
+    void    DrawCloseGlyph(HDC hdc, int id);
     void    W11_SetButtonMetrics(int width, int height);
 
     HWND        _w11_last_fg = 0;   // win11: foreground window at the last repaint (repaint only on a change)

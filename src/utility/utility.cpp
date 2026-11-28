@@ -158,7 +158,7 @@ String Context::getStackTrace() const
 
 BOOL time_to_filetime(const time_t *t, FILETIME *ftime)
 {
-#if defined(__STDC_WANT_SECURE_LIB__) && defined(_MS_VER)
+#if defined(__STDC_WANT_SECURE_LIB__) && defined(_MSC_VER)   // was _MS_VER (never defined), see utility.h
     SYSTEMTIME stime;
     struct tm tm_;
     struct tm *tm = &tm_;
@@ -406,8 +406,8 @@ BOOL launch_cpanel(HWND hwnd, LPCTSTR applet)
 {
     TCHAR parameters[MAX_PATH];
 
-    _tcscpy(parameters, TEXT("shell32.dll,Control_RunDLL "));
-    _tcscat(parameters, applet);
+    _tcsncpy_s(parameters, _countof(parameters), TEXT("shell32.dll,Control_RunDLL "), _TRUNCATE);
+    _tcsncat_s(parameters, _countof(parameters), applet, _TRUNCATE);
 
     return ((INT_PTR)ShellExecute(hwnd, TEXT("open"), TEXT("rundll32.exe"), parameters, NULL, SW_SHOWDEFAULT) > 32);
 }
@@ -417,7 +417,7 @@ BOOL RecursiveCreateDirectory(LPCTSTR path_in)
 {
     TCHAR path[MAX_PATH], hole_path[MAX_PATH];
 
-    _tcscpy(hole_path, path_in);
+    _tcsncpy_s(hole_path, _countof(hole_path), path_in, _TRUNCATE);
 
     int drv_len = 0;
     LPCTSTR d;

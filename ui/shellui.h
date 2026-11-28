@@ -56,4 +56,16 @@ int CalendarWindow(void);
 /* snip.c: Snipping-Tool-like window ("snip", "snip /now": snip at once) */
 int SnipCommand(int argc, wchar_t **argv);
 
+/* dim.c: screen dimming without brightness control ("dim <percent>"; gamma ramp, else a layer window up to 10 MB) */
+int DimCommand(int argc, wchar_t **argv);
+BOOL Dim_Available(void);
+int Dim_Current(void);
+void Dim_Set(int pct);
+
+/* bde.c: unlock BitLocker drives ("bitlocker [X:] [/check]") */
+int BitLockerCommand(int argc, wchar_t **argv);
+
+/* bat.c: battery tray icon ("tray-bat"; ends at once without a battery) */
+int BatTray(void);
+
 #endif

@@ -58,6 +58,7 @@ QuickLaunchBar::QuickLaunchBar(HWND hwnd)
     _next_id = IDC_FIRST_QUICK_ID;
     _btn_dist = 20;
     _size = 0;
+    _dir_time.dwLowDateTime = _dir_time.dwHighDateTime = 0;
 
     HWND hwndToolTip = (HWND) SendMessage(hwnd, TB_GETTOOLTIPS, 0, 0);
 
@@ -103,8 +104,31 @@ void QuickLaunchBar::ReloadShortcuts()
     try {
         static TCHAR path[MAX_PATH];
         SpecialFolderFSPath app_data(CSIDL_APPDATA, _hwnd); ///@todo perhaps also look into CSIDL_COMMON_APPDATA ?
-        _stprintf(path, TEXT("%s\\")QUICKLAUNCH_FOLDER, (LPCTSTR)app_data);
+        _sntprintf_s(path, _countof(path), _TRUNCATE, TEXT("%s\\")QUICKLAUNCH_FOLDER, (LPCTSTR)app_data);
         RecursiveCreateDirectory(path);
+        // called every second by the taskbar timer: rescan (shell objects, pidls) only when the folder content changed;
+        // the old code rescanned it every second (upstream PExplorer fixed the same in 1dc1382 / 3096057 with shell
+        // change notifications). The folder's own last write time is not enough: on the X: RAM disk it does not
+        // change when a file is added (VM 2026-11-27), so a cheap signature of the entries is compared instead.
+        {
+            TCHAR mask[MAX_PATH];
+            WIN32_FIND_DATA fd;
+            ULONGLONG sig = 1469598103934665603ULL;     // FNV-1a over names, sizes, times
+            _sntprintf_s(mask, _countof(mask), _TRUNCATE, TEXT("%s\\*"), path);
+            HANDLE hf = FindFirstFile(mask, &fd);
+            if (hf != INVALID_HANDLE_VALUE) {
+                do {
+                    for (LPCTSTR c = fd.cFileName; *c; ++c) sig = (sig ^ (ULONGLONG)*c) * 1099511628211ULL;
+                    sig = (sig ^ fd.nFileSizeLow ^ ((ULONGLONG)fd.ftLastWriteTime.dwLowDateTime << 32) ^ fd.dwFileAttributes) * 1099511628211ULL;
+                } while (FindNextFile(hf, &fd));
+                FindClose(hf);
+            }
+            FILETIME s;
+            s.dwLowDateTime = (DWORD)sig; s.dwHighDateTime = (DWORD)(sig >> 32);
+            if (CompareFileTime(&s, &_dir_time) == 0)
+                return;
+            _dir_time = s;
+        }
         if (!shelldir) {
             shelldir = new ShellDirectory(GetDesktopFolder(), path, _hwnd);
         }
@@ -126,7 +150,7 @@ void QuickLaunchBar::ReloadShortcuts()
         cnt = 0;
     }
 
-    if (_entries.size() == cnt + 2) {
+    if (_entries.size() == cnt + (JCFG_NOSHOWDESKTOP() ? 1 : 2)) {     // + the fixed buttons (AddShortcuts)
         return;
     }
 
@@ -176,7 +200,8 @@ void QuickLaunchBar::AddShortcuts()
     COLORREF bk_color = TASKBAR_TEXTCOLOR();
     HBRUSH bk_brush = TASKBAR_BRUSH(); //GetSysColorBrush(COLOR_BTNFACE);
 
-    AddButton(ID_MINIMIZE_ALL, g_Globals._icon_cache.get_icon(ICID_MINIMIZE).create_bitmap(bk_color, bk_brush, canvas, TASKBAR_ICON_SIZE), ResString(IDS_MINIMIZE_ALL), NULL);
+    if (!JCFG_NOSHOWDESKTOP())
+        AddButton(ID_MINIMIZE_ALL, g_Globals._icon_cache.get_icon(ICID_MINIMIZE).create_bitmap(bk_color, bk_brush, canvas, TASKBAR_ICON_SIZE), ResString(IDS_MINIMIZE_ALL), NULL);
     AddButton(ID_EXPLORE, g_Globals._icon_cache.get_icon(ICID_EXPLORER).create_bitmap(bk_color, bk_brush, canvas, TASKBAR_ICON_SIZE), ResString(IDS_TITLE), NULL);
 
     TBBUTTON sep = { 0, -1, TBSTATE_ENABLED, BTNS_SEP, { 0, 0 }, 0, 0 };

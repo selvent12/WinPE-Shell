@@ -51,8 +51,8 @@ if ($LASTEXITCODE) { throw "MSBuild failed ($LASTEXITCODE), see $log" }
 
 # ---- 2) UI utility + test tools (cl) ----
 & cmd.exe /d /c "`"$vcvars`" >nul 2>nul && set" | ForEach-Object { if ($_ -match '^([^=]+)=(.*)$') { Set-Item "env:$($Matches[1])" $Matches[2] } }
-$uiSrc = 'shellui.c', 'display.c', 'dispcfg.c', 'brightness.c', 'net.c', 'scale.c', 'vol.c', 'calendar.c', 'snip.c' | ForEach-Object { Join-Path $PSScriptRoot "ui\$_" }
-$uiLibs = 'kernel32.lib', 'user32.lib', 'gdi32.lib', 'shell32.lib', 'advapi32.lib', 'comctl32.lib', 'ole32.lib', 'oleaut32.lib', 'wbemuuid.lib', 'iphlpapi.lib', 'setupapi.lib', 'cfgmgr32.lib', 'newdev.lib', 'dnsapi.lib', 'msimg32.lib', 'gdiplus.lib', 'comdlg32.lib'
+$uiSrc = 'shellui.c', 'display.c', 'dispcfg.c', 'brightness.c', 'net.c', 'scale.c', 'vol.c', 'calendar.c', 'snip.c', 'dim.c', 'bde.c', 'bat.c' | ForEach-Object { Join-Path $PSScriptRoot "ui\$_" }
+$uiLibs = 'kernel32.lib', 'user32.lib', 'gdi32.lib', 'shell32.lib', 'advapi32.lib', 'comctl32.lib', 'ole32.lib', 'oleaut32.lib', 'wbemuuid.lib', 'iphlpapi.lib', 'setupapi.lib', 'cfgmgr32.lib', 'newdev.lib', 'dnsapi.lib', 'msimg32.lib', 'gdiplus.lib', 'comdlg32.lib', 'propsys.lib', 'uuid.lib'
 Push-Location "$Out\ui"
 try {
     Get-ChildItem -Filter *.obj | Remove-Item -Force
@@ -78,7 +78,7 @@ if ($TestTools) {
 New-Item -ItemType Directory -Force "$Out\winpe" | Out-Null
 Push-Location "$Out\winpe"
 try {
-    & cl.exe /nologo /W4 /WX /O2 /MT /GS /guard:cf /DUNICODE /D_UNICODE (Join-Path $PSScriptRoot 'winpe\WinPE-ShellStart.c') /Fe:WinPE-ShellStart.exe /link /SUBSYSTEM:WINDOWS /DYNAMICBASE /NXCOMPAT /guard:cf kernel32.lib 2>&1 | Out-File winpe-build.log -Encoding UTF8
+    & cl.exe /nologo /W4 /WX /O2 /MT /GS /guard:cf /DUNICODE /D_UNICODE (Join-Path $PSScriptRoot 'winpe\WinPE-ShellStart.c') /Fe:WinPE-ShellStart.exe /link /SUBSYSTEM:WINDOWS /DYNAMICBASE /NXCOMPAT /guard:cf kernel32.lib user32.lib 2>&1 | Out-File winpe-build.log -Encoding UTF8
     if ($LASTEXITCODE) { Get-Content winpe-build.log | Select-Object -Last 20; throw "cl failed for WinPE-ShellStart ($LASTEXITCODE)" }
     Get-ChildItem -Filter *.obj | Remove-Item -Force
     # DisplayLayout.dll: C# (P/Invoke only), compiled with the .NET Framework 4 compiler that ships with Windows

@@ -151,7 +151,23 @@ LRESULT DesktopBar::Init(LPCREATESTRUCT pcs)
             idStartIcon = IDI_STARTMENU_W;
         }
     }
-    new StartButton(hwndStart, idStartIcon, TASKBAR_TEXTCOLOR(), true);
+    // JS_STARTMENU.start_icon = path of an .ico file (environment variables expanded): own Start button picture
+    // (idea from PExplorer/WinXShell 91f5f3a, which used fixed Resources<theme>Start_Normal.ico files)
+    HICON customStart = NULL;
+    if (!isEmptyStartIcon) {
+        String si = JCFG2_DEF("JS_STARTMENU", "start_icon", TEXT("")).ToString();
+        if (!si.empty()) {
+            TCHAR p[MAX_PATH];
+            ExpandEnvironmentStrings(si.c_str(), p, MAX_PATH);
+            int sz = W11_Enabled() ? max((int)DPI_SX(14), (int)TASKBAR_ICON_SIZE - DPI_SX(4)) : TASKBAR_ICON_SIZE;
+            customStart = (HICON)LoadImage(NULL, p, IMAGE_ICON, sz, sz, LR_LOADFROMFILE);
+            if (!customStart) LOG(FmtString(TEXT("start_icon %s: not loaded (err %lu) - default logo"), p, GetLastError()));
+        }
+    }
+    if (customStart)
+        new StartButton(hwndStart, customStart, TASKBAR_TEXTCOLOR(), true);
+    else
+        new StartButton(hwndStart, idStartIcon, TASKBAR_TEXTCOLOR(), true);
 
     /* Save the handle to the window, needed for push-state handling */
     _hwndStartButton = hwndStart;
@@ -172,11 +188,13 @@ LRESULT DesktopBar::Init(LPCREATESTRUCT pcs)
 
     //LoadSSO(); /* load in main() by SSOThread */
 
-    _hwndQuickLaunch = QuickLaunchBar::Create(_hwnd);
+    // JS_QUICKLAUNCH.visible=false: no quick launch bar (WinXShell e713dc6); the pinned programs are on it, so default on
+    if (JCFG2_DEF("JS_QUICKLAUNCH", "visible", true).ToBool() != FALSE)
+        _hwndQuickLaunch = QuickLaunchBar::Create(_hwnd);
 
     SetTimer(_hwnd, 0, 1000, NULL);
 
-    if (JCFG_TB(2, "userebar").ToBool() == TRUE) {
+    if (JCFG_TB(2, "userebar").ToBool() == TRUE && _hwndQuickLaunch) {     // the rebar holds the quick launch band
         JCFG_QL_SET(2, "maxiconsinrow") = 0;
         // create rebar window to manage task and quick launch bar
         _hwndrebar = CreateWindowEx(WS_EX_TOOLWINDOW, REBARCLASSNAME, NULL,
@@ -244,6 +262,12 @@ StartButton::StartButton(HWND hwnd, UINT nid, COLORREF textcolor, bool flat)
     _empty = nid == IDI_EMPTY;
 }
 
+StartButton::StartButton(HWND hwnd, HICON custom, COLORREF textcolor, bool flat)
+    :  PictureButton(hwnd, custom, TASKBAR_BRUSH(), textcolor, flat)
+{
+    _custom = custom;
+}
+
 void StartButton::DrawItem(LPDRAWITEMSTRUCT dis)
 {
     if (!W11_Enabled() || _empty) {
@@ -262,7 +286,10 @@ void StartButton::DrawItem(LPDRAWITEMSTRUCT dis)
     RECT lr = rc;
     if (dis->itemState & ODS_SELECTED)
         OffsetRect(&lr, 0, DPI_SY(1));
-    W11_DrawStartLogo(hdc, lr, logo, W11_Color(W11C_ACCENT));
+    if (_custom)
+        DrawIconEx(hdc, (lr.left + lr.right - logo) / 2, (lr.top + lr.bottom - logo) / 2, _custom, logo, logo, 0, NULL, DI_NORMAL);
+    else
+        W11_DrawStartLogo(hdc, lr, logo, W11_Color(W11C_ACCENT));
 }
 
 extern int VK_WIN_HOOK();
@@ -345,7 +372,9 @@ void DesktopBar::RegisterHotkeys(BOOL unreg)
 {
     // register hotkey CONTROL+ESC opening STARTMENU
     AUTOREGISTERHOTKEY(unreg, _hwnd, IDHK_STARTMENU, MOD_CONTROL, VK_ESCAPE);
-    AUTOREGISTERHOTKEY(unreg, _hwnd, IDHK_DESKTOP, MOD_WIN, 'D');
+    if (!JCFG_NOSHOWDESKTOP() || unreg) {
+        AUTOREGISTERHOTKEY(unreg, _hwnd, IDHK_DESKTOP, MOD_WIN, 'D');
+    }
 }
 
 void DesktopBar::ProcessHotKey(int id_hotkey)

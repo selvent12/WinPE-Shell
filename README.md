@@ -44,6 +44,10 @@ Screenshots: WinPE 26H2 in a VM at 150 % scale (`"style": "win11"`, the right co
   here, Restart shell, Restart..., Shut down... Alt+F4 on the desktop opens the shutdown dialog.
 - Folder windows can be handed to a third-party file manager (for example Explorer++).
 - System DPI aware; "Restart shell" exits with code `0x7F04` so a launcher's watchdog can tell it from a crash.
+- Optional "x" on the hovered task button to close that window (`JS_TASKBAR.task_close_button`).
+- "Show desktop" strip at the right end of the taskbar (as in Windows 7-11).
+- Pinned programs defined at run time, also for programs added after the build (boot stick): Start menu right click
+  "Pin to Start" / "Pin to taskbar", kept in a pins file (`JS_STARTMENU.pins_file`).
 
 ### UI utility (`WinPE-ShellUI.exe`)
 
@@ -60,6 +64,9 @@ Screenshots: WinPE 26H2 in a VM at 150 % scale (`"style": "win11"`, the right co
 | `WinPE-ShellUI scale <percent> [/norestart]` | Live display scale on every display (restarts the shell if it changed) |
 | `WinPE-ShellUI calendar` | Calendar above the clock: time, long date, month view (Esc or a click elsewhere closes it) |
 | `WinPE-ShellUI snip [/now]` | Snipping tool: New (rectangular / full-screen snip), Save As (PNG, JPEG, BMP), Copy; the snip goes to the clipboard. `/now` = snip at once (Print Screen) |
+| `WinPE-ShellUI dim <20..100>` | Dims the screen when its brightness cannot be set (no WMI panel / DDC/CI): gamma ramp of the display driver (no extra memory), else a click-through dimming layer (without DWM it costs 4 bytes of RAM per pixel while the screen is dimmed: about 8 MB for 1920x1080, 33 MB for 3840x2160). `100` ends it. The Display window's brightness row uses it for such monitors |
+| `WinPE-ShellUI tray-bat` | Battery icon in the tray (charge, charging / plugged in / time left); ends at once on a PC without a battery |
+| `WinPE-ShellUI bitlocker [X:] [/check]` | Unlocks BitLocker drives: locked drives, password or 48-digit recovery key (BitLocker WMI through PowerShell; the secret goes on standard input, never on a command line or into a log). `/check` = only if a drive is locked (start-up step) |
 
 **Display window**: monitors drawn by their real position; Extend / Duplicate / only display N; per display
 resolution, refresh rate, orientation, main display; every change with a 15 s "Keep changes?" countdown and automatic
@@ -80,7 +87,8 @@ Volume mixer, Sound settings); follows device changes and live scale changes.
 - **`WinPE-ShellStart.exe`** (C, no console): the only `winpeshl.ini` entry. Runs `wpeinit`, then the steps of
   `<exe dir>\config\startup.ini` `[run]` (`wait|`, `nowait|`, `wait<seconds>|` = wait at most that long), then starts
   the shell and restarts it when it exits. Crashes: at most 4 starts in 60 s, then a rescue command prompt; requested
-  restarts (exit codes `0x7F04` / `0x7F05`) have their own, larger limit. Log: `<exe dir>\logs\startup.log`.
+  restarts (exit codes `0x7F04` / `0x7F05`) have their own, larger limit. A hung shell (its taskbar window does not
+  answer for about 2 minutes) is ended with `0x7F06` and restarted like a crash. Log: `<exe dir>\logs\startup.log`.
   The scripts use the folder above their `bin\` (`<base>\config`, `<base>\logs`, `<base>\WinPE-ShellUI.exe`).
 - **`DisplayLayout.dll`** (C#, P/Invoke only) + **`Set-DisplayLayout.ps1`**: at boot, waits for the GPU driver, sets
   Extend mode, the native resolution / refresh of every monitor, the main display and positions from `display.json`,
@@ -154,6 +162,20 @@ Releases: a tag `v*` runs `.github/workflows/release.yml`, which builds the same
   calendar`); without it a double click opens the Date and Time panel.
 - `JS_HOTKEY.printscreen` `{ "command", "parameters" }`: Print Screen runs it (e.g. `WinPE-ShellUI.exe snip /now`);
   the key is registered only when a command is set.
+- `JS_TASKBAR.task_close_button` (default `false`): an "x" in the corner of the hovered task button closes the window.
+- `JS_TASKBAR.visible` (default `true`): `false` = no taskbar (same as `notaskbar: true`, the name WinXShell uses).
+- `JS_TASKBAR.disable_showdesktop` (default `false`): no Win+D and no "show desktop" quick launch button.
+- `JS_NOTIFYAREA.hide_toggle_button` (default `false`): no button for the hidden notification icons.
+- `JS_NOTIFYCLOCK.visible` (default `true`): `false` = no clock.
+- `JS_NOTIFYAREA.hide_showdesktop_button` (default `false`): no "show desktop" strip right of the clock.
+- `JS_QUICKLAUNCH.visible` (default `true`): `false` = no quick launch bar (and so no taskbar pins).
+- `JS_STARTMENU.start_icon`: `"empty"`, or the path of an `.ico` file drawn instead of the Windows logo.
+- `JS_STARTMENU.pins_file`: list of ini files, `*:\` = the drive with `extra_folders_marker` (the boot stick), e.g.
+  `[ "*:\MyPE\config\pins.ini", "X:\MyPE\config\pins.ini" ]`. Read: the first existing file. Written by the
+  Start menu's "Pin to ..." (right click on a program): the first file whose folder exists or can be made, so pins
+  made with the stick present stay on the stick (a new file starts as a copy of the one read so far). Sections
+  `[start]` (added to the left column) and `[taskbar]` (shortcuts in the quick launch folder, made at shell start):
+  one entry per line, a name as in All Programs (`Folder\Name`) or a file path (`*:\` allowed).
 - `JS_DESKTOP.restart_on_resolution_change` (default `true`): when the main display's resolution changes (Display
   window, or a program that switches the mode itself), the shell restarts after 2 s so desktop and taskbar icons are
   redrawn at the new size.
@@ -242,6 +264,13 @@ Base: PExplorer branch `WinXShell_shellpart` @ `5f8b886` (2018-08-19).
   boot-stick paths of `Set-DisplayLayout.ps1` as parameters, current screenshots, release workflow.
 - **17** Fixes from a test on real hardware: calendar on a clock click, snipping tool + Print Screen, shell restart
   after a resolution change, the Display window scrolls when it does not fit the screen (low resolution).
+- **18** Fixes and options taken over from the later PExplorer `WinXShell` branch (rewritten here, no Lua): quick
+  launch rescanned only when its folder changed (was every second), Start menu guard for an empty / scrolled list,
+  tray icons of version 4 and later; the secure CRT functions were silently mapped to the unbounded ones (`_MS_VER`
+  typo in the ReactOS code) - fixed, and the remaining unbounded string copies replaced; hang detection in the
+  watchdog; task "x" button, `visible` / `disable_showdesktop` / `hide_toggle_button` / clock `visible` options;
+  `dim` (screen dimming) and `bitlocker` (unlock) in the utility; "show desktop" strip, Start button picture from an
+  `.ico` file, quick launch `visible`, run-time pins (Start menu / taskbar, pins file on the boot stick), `tray-bat`.
 
 ## 7. License and credits
 - Shell (`src/`): GNU LGPL 2.1 or later, as the upstream sources. Descends from the **ReactOS Explorer** (Copyright the

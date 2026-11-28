@@ -131,6 +131,7 @@ struct StartButton : public PictureButton {
     typedef PictureButton super;
 
     StartButton(HWND hwnd, UINT nid, COLORREF textcolor = -1, bool flat = false);
+    StartButton(HWND hwnd, HICON custom, COLORREF textcolor = -1, bool flat = false);   ///< start_icon = an .ico file
 
 protected:
     LRESULT WndProc(UINT nmsg, WPARAM wparam, LPARAM lparam);
@@ -138,4 +139,5 @@ protected:
 
     bool    _hot = false;
     bool    _empty = false;     // JS_STARTMENU.start_icon "empty": no logo, classic drawing (also in win11 style)
+    HICON   _custom = NULL;     // JS_STARTMENU.start_icon = path of an .ico file: drawn instead of the logo
 };

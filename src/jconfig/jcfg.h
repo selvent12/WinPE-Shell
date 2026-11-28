@@ -48,6 +48,11 @@ extern int JCfg_GetDesktopBarHeight();
 #define JCFG_TB(n, ...) (JCFG##n("JS_TASKBAR", __VA_ARGS__))
 #define JCFG_QL(n, ...) (JCFG##n("JS_QUICKLAUNCH", __VA_ARGS__))
 
+// no taskbar: JS_TASKBAR.notaskbar=true, or JS_TASKBAR.visible=false (the name WinXShell uses, 2e6b14c)
+#define JCFG_NOTASKBAR() (JCFG_TB(2, "notaskbar").ToBool() == TRUE || JCFG2_DEF("JS_TASKBAR", "visible", true).ToBool() == FALSE)
+// JS_TASKBAR.disable_showdesktop=true: no Win+D and no "show desktop" button (WinXShell a310711)
+#define JCFG_NOSHOWDESKTOP() (JCFG2_DEF("JS_TASKBAR", "disable_showdesktop", false).ToBool() == TRUE)
+
 #define JCFG_TB_SET(n, ...) (SET_JCFG##n("JS_TASKBAR", __VA_ARGS__))
 #define JCFG_QL_SET(n, ...) (SET_JCFG##n("JS_QUICKLAUNCH", __VA_ARGS__))
 

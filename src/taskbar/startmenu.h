@@ -286,6 +286,10 @@ protected:
     virtual void CloseStartMenu(int id = 0);
 
     bool    GetButtonRect(int id, PRECT prect) const;
+    /// first button shown: _buttons.begin() + _scroll_pos, or end() when the list is shorter than the scroll position
+    /// (empty or rebuilt list - iterating past end() crashed, upstream PExplorer fde5f9d)
+    SMBtnVector::const_iterator FirstVisibleButton() const
+        { return _scroll_pos >= 0 && _scroll_pos < (int)_buttons.size() ? _buttons.begin() + _scroll_pos : _buttons.end(); }
 
     void    DrawFloatingButton(HDC hdc);
     void    GetFloatingButtonRect(LPRECT prect);

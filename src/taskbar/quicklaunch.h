@@ -75,6 +75,7 @@ protected:
     QuickLaunchMap  _entries;
     int             _btn_dist;
     int             _size;
+    FILETIME        _dir_time;  ///< signature of the Quick Launch folder content at the last scan (names, sizes, times)
 
     void    AddShortcuts();
     void    ReloadShortcuts();

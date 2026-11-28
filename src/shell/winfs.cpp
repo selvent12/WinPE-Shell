@@ -73,7 +73,7 @@ int ScanNTFSStreams(Entry *entry, HANDLE hFile)
                 Entry *stream_entry = new WinEntry(entry);
 
                 memcpy(&stream_entry->_data, &entry->_data, sizeof(WIN32_FIND_DATA));
-                lstrcpy(stream_entry->_data.cFileName, String(p, (int)l));
+                _tcsncpy_s(stream_entry->_data.cFileName, _countof(stream_entry->_data.cFileName), String(p, (int)l), _TRUNCATE);
 
                 stream_entry->_down = NULL;
                 stream_entry->_expanded = false;
@@ -129,17 +129,17 @@ void WinDirectory::read_directory(int scan_flags)
 
     LPCTSTR path = (LPCTSTR)_path;
     TCHAR buffer[MAX_PATH], *pname;
-    for (pname = buffer; *path;)
+    for (pname = buffer; *path && pname < buffer + _countof(buffer) - 3;)   // room for "\*" + NUL
         *pname++ = *path++;
 
-    lstrcpy(pname, TEXT("\\*"));
+    _tcsncpy_s(pname, _countof(buffer) - (pname - buffer), TEXT("\\*"), _TRUNCATE);
 
     WIN32_FIND_DATA w32fd;
     HANDLE hFind = FindFirstFile(buffer, &w32fd);
 
     if (hFind != INVALID_HANDLE_VALUE) {
         do {
-            lstrcpy(pname + 1, w32fd.cFileName);
+            _tcsncpy_s(pname + 1, _countof(buffer) - (pname + 1 - buffer), w32fd.cFileName, _TRUNCATE);
 
             if (w32fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
                 entry = new WinDirectory(this, buffer);

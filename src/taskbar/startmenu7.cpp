@@ -21,6 +21,7 @@
 #include <vector>
 #include <string>
 #include <algorithm>
+#include <list>
 
 #include "startmenu7.h"
 #include "win11style.h"
@@ -179,6 +180,9 @@ static std::wstring ExtraFolderMarker()
     return m;
 }
 
+static void SyncTaskbarPinsFull(const Node &extra);     // pins (below)
+static std::vector<std::wstring> PinsFiles();
+
 static DWORD WINAPI ExtraScanThread(LPVOID)
 {
     UINT oldMode = SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOOPENFILEERRORBOX);
@@ -208,6 +212,7 @@ static DWORD WINAPI ExtraScanThread(LPVOID)
                 ScanDir(d, tree, true);
         }
     }
+    SyncTaskbarPinsFull(tree);          // taskbar pins may name programs from the extra folders
     SetErrorMode(oldMode);
     EnterCriticalSection(&s_extraLock);
     *s_extraTree = tree;
@@ -232,7 +237,8 @@ static void EnsureExtraInit()
 static void StartExtraScan()
 {
     EnsureExtraInit();
-    if (ExtraFolderPatterns().empty() || InterlockedCompareExchange(&s_extraBusy, 1, 0) != 0)
+    // also without extra folders when a pins file is configured (the scan thread makes the taskbar pins)
+    if ((ExtraFolderPatterns().empty() && PinsFiles().empty()) || InterlockedCompareExchange(&s_extraBusy, 1, 0) != 0)
         return;
     HANDLE t = CreateThread(NULL, 0, ExtraScanThread, NULL, 0, NULL);
     if (t)
@@ -282,6 +288,288 @@ static Node *FindPath(Node &root, const std::wstring &rel)   // "Tools\Notepad2"
     return NULL;
 }
 
+// ---------------------------------------------------------------------------------------------------------------
+// Pinned programs defined at run time (also for programs added after the build, e.g. on the boot stick):
+// JS_STARTMENU.pins_file = list of ini file patterns, "*:\" = drives with extra_folders_marker (the boot stick),
+// e.g. [ "*:\\MyPE\\config\\pins.ini", "X:\\MyPE\\config\\pins.ini" ]. Read: the first existing file; write (Start
+// menu right click "Pin to Start / taskbar"): the first one whose folder exists, so pins made on the stick stay there.
+//   [start]          one entry per line: a name as in All Programs ("Folder\Name") or a file path ("*:\" allowed)
+//   Notepad2
+//   [taskbar]
+//   Notepad2
+// Taskbar pins are shortcuts in the quick launch folder, made at shell start and after each change (hidden list
+// file "pins.list" there = the shortcuts made by this code, removed again when unpinned).
+// ---------------------------------------------------------------------------------------------------------------
+static std::vector<std::wstring> PinsFiles()
+{
+    std::vector<std::wstring> v;
+    Value cfg = JCFG2("JS_STARTMENU", "pins_file");
+    std::vector<std::wstring> pats;
+    if (cfg.GetType() == ArrayVal) {
+        for (size_t i = 0; i < cfg.size(); i++) pats.push_back(cfg[i].ToString(std::wstring()));
+    } else if (cfg.GetType() == StringVal)
+        pats.push_back(cfg.ToString(std::wstring()));
+    std::wstring marker = ExtraFolderMarker();
+    for (std::wstring p : pats) {
+        wchar_t buf[MAX_PATH * 2];
+        if (p.empty()) continue;
+        if (ExpandEnvironmentStringsW(p.c_str(), buf, MAX_PATH * 2) && wcslen(buf) < MAX_PATH) p = buf;
+        if (p.size() >= 3 && p[0] == L'*' && p[1] == L':' && p[2] == L'\\') {
+            DWORD drives = GetLogicalDrives();
+            for (int d = 2; d < 26; d++) {
+                if (!(drives & (1u << d))) continue;
+                wchar_t root[4] = {(wchar_t)(L'A' + d), L':', L'\\', 0};
+                UINT t = GetDriveTypeW(root);
+                if (t != DRIVE_FIXED && t != DRIVE_REMOVABLE) continue;
+                if (!marker.empty() && GetFileAttributesW((std::wstring(root) + marker).c_str()) == INVALID_FILE_ATTRIBUTES) continue;
+                v.push_back(std::wstring(root, 2) + p.substr(2));
+            }
+        } else
+            v.push_back(p);
+    }
+    return v;
+}
+
+static std::wstring PinsFileRead()
+{
+    for (const std::wstring &f : PinsFiles())
+        if (GetFileAttributesW(f.c_str()) != INVALID_FILE_ATTRIBUTES) return f;
+    return L"";
+}
+
+// the first candidate that can be written (its folder exists, or is made when the folder above it exists, e.g.
+// <stick>\MyPE\config); a new file there starts as a copy of the pins file read so far (e.g. the image's defaults)
+static std::wstring PinsFileWrite()
+{
+    std::wstring existing = PinsFileRead();
+    for (const std::wstring &f : PinsFiles()) {
+        size_t bs = f.rfind(L'\\');
+        if (bs == std::wstring::npos) continue;
+        std::wstring dir = f.substr(0, bs);
+        DWORD a = GetFileAttributesW(dir.c_str());
+        if (a == INVALID_FILE_ATTRIBUTES) {
+            size_t bs2 = dir.rfind(L'\\');
+            if (bs2 == std::wstring::npos || GetFileAttributesW(dir.substr(0, bs2).c_str()) == INVALID_FILE_ATTRIBUTES ||
+                !CreateDirectoryW(dir.c_str(), NULL))
+                continue;
+            a = FILE_ATTRIBUTE_DIRECTORY;
+        }
+        if (!(a & FILE_ATTRIBUTE_DIRECTORY)) continue;
+        if (GetFileAttributesW(f.c_str()) == INVALID_FILE_ATTRIBUTES && !existing.empty() && _wcsicmp(existing.c_str(), f.c_str()))
+            CopyFileW(existing.c_str(), f.c_str(), TRUE);
+        return f;
+    }
+    return L"";
+}
+
+static std::vector<std::wstring> PinsRead(const wchar_t *section)
+{
+    std::vector<std::wstring> v;
+    std::wstring f = PinsFileRead();
+    if (f.empty()) return v;
+    std::vector<wchar_t> buf(32768);
+    DWORD n = GetPrivateProfileSectionW(section, buf.data(), (DWORD)buf.size(), f.c_str());
+    for (const wchar_t *p = buf.data(); n && *p; p += wcslen(p) + 1) {
+        std::wstring s = p;
+        while (!s.empty() && iswspace(s.back())) s.pop_back();
+        while (!s.empty() && iswspace(s[0])) s.erase(0, 1);
+        if (s.empty() || s[0] == L';') continue;
+        if (std::find_if(v.begin(), v.end(), [&](const std::wstring &o) { return !_wcsicmp(o.c_str(), s.c_str()); }) == v.end())
+            v.push_back(s);     // an entry written twice (by hand, or an old file) counts once
+    }
+    return v;
+}
+
+static bool PinsWrite(const wchar_t *section, const std::vector<std::wstring> &items)
+{
+    std::wstring f = PinsFileWrite();
+    if (f.empty()) { LOG(TEXT("pins: no writable pins_file")); return false; }
+    if (GetFileAttributesW(f.c_str()) == INVALID_FILE_ATTRIBUTES) {     // new file: UTF-16 so names keep any letter
+        HANDLE h = CreateFileW(f.c_str(), GENERIC_WRITE, 0, NULL, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, NULL);
+        if (h != INVALID_HANDLE_VALUE) {
+            static const wchar_t hdr[] = L"\xFEFF; WinPE-Shell pins (Start menu: right click, Pin to Start / Pin to taskbar)\r\n";
+            DWORD w; WriteFile(h, hdr, (DWORD)(wcslen(hdr) * sizeof(wchar_t)), &w, NULL); CloseHandle(h);
+        }
+    }
+    std::vector<wchar_t> ms;
+    for (const std::wstring &s : items) { ms.insert(ms.end(), s.begin(), s.end()); ms.push_back(0); }
+    ms.push_back(0);
+    BOOL ok = WritePrivateProfileSectionW(section, ms.data(), f.c_str());
+    LOG(FmtString(TEXT("pins: [%s] %d entries -> %s%s"), section, (int)items.size(), f.c_str(), ok ? TEXT("") : TEXT(" FAILED")));
+    return ok != FALSE;
+}
+
+static bool IsPathPin(const std::wstring &s) { return s.size() > 2 && s[1] == L':' && s.find(L'\\') != std::wstring::npos; }
+
+// "*:\..." of a path pin: the drive with the marker that has the file
+static std::wstring ResolvePinPath(const std::wstring &s)
+{
+    if (!(s[0] == L'*' && s[1] == L':')) return s;
+    std::wstring marker = ExtraFolderMarker();
+    DWORD drives = GetLogicalDrives();
+    for (int d = 2; d < 26; d++) {
+        if (!(drives & (1u << d))) continue;
+        wchar_t root[4] = {(wchar_t)(L'A' + d), L':', L'\\', 0};
+        if (!marker.empty() && GetFileAttributesW((std::wstring(root) + marker).c_str()) == INVALID_FILE_ATTRIBUTES) continue;
+        std::wstring p = std::wstring(root, 2) + s.substr(2);
+        if (GetFileAttributesW(p.c_str()) != INVALID_FILE_ATTRIBUTES) return p;
+    }
+    return L"";
+}
+
+// first program (not folder) of that display name anywhere in the tree, depth first in the menu order
+static Node *FindByName(Node &n, const std::wstring &name)
+{
+    for (auto &c : n.children)
+        if (!c.folder && !_wcsicmp(c.name.c_str(), name.c_str())) return &c;
+    for (auto &c : n.children)
+        if (c.folder) { Node *r = FindByName(c, name); if (r) return r; }
+    return NULL;
+}
+
+// pin entry -> file to start (a .lnk or a program) and its display name
+static bool ResolvePin(Node &root, const std::wstring &pin, std::wstring &file, std::wstring &name)
+{
+    if (IsPathPin(pin)) {
+        file = ResolvePinPath(pin);
+        if (file.empty() || GetFileAttributesW(file.c_str()) == INVALID_FILE_ATTRIBUTES) return false;
+        size_t bs = file.rfind(L'\\'), dot = file.rfind(L'.');
+        name = file.substr(bs + 1, dot != std::wstring::npos && dot > bs ? dot - bs - 1 : std::wstring::npos);
+        return true;
+    }
+    Node *n = FindPath(root, pin);
+    if (!n && pin.find(L'\\') == std::wstring::npos)    // a bare name: the program wherever it is (e.g. "Tools\Name")
+        n = FindByName(root, pin);
+    if (!n || n->folder || n->paths.empty()) return false;
+    file = n->paths[0];
+    name = n->name;
+    return true;
+}
+
+// "Folder\Name" of a node in the tree (for the pins file)
+static bool RelPath(const Node &n, const Node *target, std::wstring &out)
+{
+    for (const auto &c : n.children) {
+        if (&c == target) { out = c.name; return true; }
+        if (c.folder) {
+            std::wstring sub;
+            if (RelPath(c, target, sub)) { out = c.name + L"\\" + sub; return true; }
+        }
+    }
+    return false;
+}
+
+// pins.list: the shortcut names this code made, one per line (UTF-16). A plain file written whole: the profile API
+// left the same name several times in it when syncs overlapped (VM 2026-11-28)
+static std::vector<std::wstring> ReadMadeList(const std::wstring &list)
+{
+    std::vector<std::wstring> v;
+    HANDLE h = CreateFileW(list.c_str(), GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
+    if (h == INVALID_HANDLE_VALUE) return v;
+    DWORD size = GetFileSize(h, NULL), n = 0;
+    std::vector<wchar_t> buf(size / sizeof(wchar_t) + 1, 0);
+    if (size < 1024 * 1024 && ReadFile(h, buf.data(), size, &n, NULL)) {
+        std::wstring all(buf.data(), n / sizeof(wchar_t)), line;
+        if (!all.empty() && all[0] == 0xFEFF) all.erase(0, 1);
+        for (wchar_t c : all + L"\n") {
+            if (c == L'\r') continue;
+            if (c != L'\n') { line += c; continue; }
+            if (!line.empty() && line[0] != L';' &&
+                std::find_if(v.begin(), v.end(), [&](const std::wstring &o) { return !_wcsicmp(o.c_str(), line.c_str()); }) == v.end())
+                v.push_back(line);
+            line.clear();
+        }
+    }
+    CloseHandle(h);
+    return v;
+}
+
+static void WriteMadeList(const std::wstring &list, const std::vector<std::wstring> &made)
+{
+    std::wstring all = L"\xFEFF; shortcuts made from the pins file (WinPE-Shell), removed again when unpinned\r\n";
+    for (const std::wstring &s : made) all += s + L"\r\n";
+    // hidden (the quick launch bar skips hidden files); CREATE_ALWAYS on a hidden file needs the hidden attribute
+    HANDLE h = CreateFileW(list.c_str(), GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_HIDDEN, NULL);
+    if (h == INVALID_HANDLE_VALUE) { LOG(FmtString(TEXT("pins: %s not written (%lu)"), list.c_str(), GetLastError())); return; }
+    DWORD w;
+    WriteFile(h, all.c_str(), (DWORD)(all.size() * sizeof(wchar_t)), &w, NULL);
+    CloseHandle(h);
+}
+
+static SRWLOCK s_pinsLock = SRWLOCK_INIT;      // shell start, Start menu opening and "Pin to" may sync at once
+
+static void SyncTaskbarPinsLocked(Node &root);
+static void SyncTaskbarPins(Node &root)
+{
+    AcquireSRWLockExclusive(&s_pinsLock);
+    SyncTaskbarPinsLocked(root);
+    ReleaseSRWLockExclusive(&s_pinsLock);
+}
+
+static void SyncTaskbarPinsLocked(Node &root)
+{
+    wchar_t appdata[MAX_PATH];
+    if (FAILED(SHGetFolderPathW(NULL, CSIDL_APPDATA, NULL, SHGFP_TYPE_CURRENT, appdata))) return;
+    std::wstring ql = std::wstring(appdata) + L"\\Microsoft\\Internet Explorer\\Quick Launch";
+    SHCreateDirectoryExW(NULL, ql.c_str(), NULL);
+    std::wstring list = ql + L"\\pins.list";
+    std::vector<std::wstring> old = ReadMadeList(list);     // shortcuts made last time
+    std::vector<std::wstring> made;
+    HRESULT co = CoInitializeEx(NULL, COINIT_APARTMENTTHREADED);
+    for (const std::wstring &pin : PinsRead(L"taskbar")) {
+        std::wstring file, name;
+        if (!ResolvePin(root, pin, file, name)) { LOG(FmtString(TEXT("pins: taskbar \"%s\" not found (yet)"), pin.c_str())); continue; }
+        if (std::find_if(made.begin(), made.end(), [&](const std::wstring &m) { return !_wcsicmp(m.c_str(), (name + L".lnk").c_str()); }) != made.end())
+            continue;           // two entries for the same program ("Name" and "Folder\Name"): one shortcut
+        std::wstring dst = ql + L"\\" + name + L".lnk";
+        bool had = std::find_if(old.begin(), old.end(), [&](const std::wstring &o) { return !_wcsicmp(o.c_str(), (name + L".lnk").c_str()); }) != old.end();
+        if (had && GetFileAttributesW(dst.c_str()) != INVALID_FILE_ATTRIBUTES) { made.push_back(name + L".lnk"); continue; }   // unchanged: no rewrite (the bar would reload)
+        size_t dot = file.rfind(L'.');
+        bool isLnk = dot != std::wstring::npos && !_wcsicmp(file.c_str() + dot, L".lnk");
+        bool ok = false;
+        if (isLnk)
+            ok = CopyFileW(file.c_str(), dst.c_str(), FALSE) != FALSE;
+        else {
+            IShellLinkW *sl = NULL;
+            if (SUCCEEDED(CoCreateInstance(CLSID_ShellLink, NULL, CLSCTX_INPROC_SERVER, IID_IShellLinkW, (void **)&sl))) {
+                IPersistFile *pf = NULL;
+                sl->SetPath(file.c_str());
+                sl->SetWorkingDirectory(file.substr(0, file.rfind(L'\\')).c_str());
+                if (SUCCEEDED(sl->QueryInterface(IID_IPersistFile, (void **)&pf))) { ok = SUCCEEDED(pf->Save(dst.c_str(), TRUE)); pf->Release(); }
+                sl->Release();
+            }
+        }
+        if (ok) made.push_back(name + L".lnk");
+        else LOG(FmtString(TEXT("pins: taskbar shortcut %s failed (%lu)"), dst.c_str(), GetLastError()));
+    }
+    for (const std::wstring &o : old)       // unpinned since: remove the shortcut this code made
+        if (std::find_if(made.begin(), made.end(), [&](const std::wstring &m) { return !_wcsicmp(m.c_str(), o.c_str()); }) == made.end())
+            DeleteFileW((ql + L"\\" + o).c_str());
+    WriteMadeList(list, made);
+    if (SUCCEEDED(co)) CoUninitialize();
+    LOG(FmtString(TEXT("pins: taskbar %d shortcut(s)"), (int)made.size()));
+}
+
+// full program tree (Start menu folders + extra folders) for the sync at shell start (background scan thread)
+static void SyncTaskbarPinsFull(const Node &extra)
+{
+    Node full;
+    full.folder = true;
+    wchar_t path[MAX_PATH];
+    if (SUCCEEDED(SHGetFolderPathW(NULL, CSIDL_COMMON_PROGRAMS, NULL, SHGFP_TYPE_CURRENT, path))) ScanDir(path, full);
+    if (SUCCEEDED(SHGetFolderPathW(NULL, CSIDL_PROGRAMS, NULL, SHGFP_TYPE_CURRENT, path))) ScanDir(path, full);
+    MergeTree(full, extra);
+    SyncTaskbarPins(full);
+}
+
+static DWORD WINAPI SyncPinsThread(LPVOID p)    // after a change in the Start menu: on a copy of its tree
+{
+    Node *tree = (Node *)p;
+    SyncTaskbarPins(*tree);
+    delete tree;
+    return 0;
+}
+
 static void CollectMatches(Node &n, const std::wstring &q, std::vector<Node *> &out)
 {
     for (auto &c : n.children) {
@@ -320,6 +608,8 @@ private:
 
     Node _root;
     std::vector<Node *> _pinned, _matches;
+    std::list<Node> _pinNodes;                                  // Start pins given as file paths (pins file)
+    std::vector<std::pair<const Node *, std::wstring>> _pinKeys; // their entries in the pins file
     std::vector<Row> _rows;
     std::vector<RightItem> _right;
     std::wstring _title;
@@ -372,6 +662,8 @@ private:
     void OnSearchChanged();
     bool OnKey(UINT vk);
     void ShowShutdownMenu();
+    void AddFilePins();
+    void ShowPinMenu(int row, POINT screen);
     void SetHot(HotArea a, int idx);
 
     static LRESULT CALLBACK WndProc(HWND, UINT, WPARAM, LPARAM);
@@ -461,6 +753,82 @@ void StartMenu7::Rescan()
         for (auto &c : _root.children)
             if (!c.folder)
                 _pinned.push_back(&c);
+    }
+    AddFilePins();
+}
+
+// [start] of the pins file after the configured pinned programs (names as in All Programs, or file paths)
+void StartMenu7::AddFilePins()
+{
+    _pinNodes.clear();
+    _pinKeys.clear();
+    for (const std::wstring &pin : PinsRead(L"start")) {
+        Node *n = NULL;
+        if (IsPathPin(pin)) {
+            std::wstring file, name;
+            if (!ResolvePin(_root, pin, file, name))
+                continue;
+            Node pn;
+            pn.name = name;
+            pn.paths.push_back(file);
+            _pinNodes.push_back(pn);
+            n = &_pinNodes.back();
+            _pinKeys.push_back({n, pin});
+        } else {
+            n = FindPath(_root, pin);
+            if (!n || n->folder)
+                continue;
+        }
+        if (std::find(_pinned.begin(), _pinned.end(), n) == _pinned.end())
+            _pinned.push_back(n);
+    }
+}
+
+// right click on a program: Pin to / Unpin from Start and taskbar (written to the pins file, see PinsFiles)
+void StartMenu7::ShowPinMenu(int row, POINT pt)
+{
+    if (row < 0 || row >= (int)_rows.size() || _rows[row].kind != R_ITEM || !_rows[row].node || _rows[row].node->folder)
+        return;
+    if (PinsFiles().empty()) {      // no pins file configured (PinsFileWrite would already make folders)
+        LOG(TEXT("pins: no JS_STARTMENU.pins_file - no pin menu"));
+        return;
+    }
+    Node *n = _rows[row].node;
+    std::wstring key;
+    for (auto &k : _pinKeys)
+        if (k.first == n) key = k.second;
+    if (key.empty() && !RelPath(_root, n, key)) {
+        if (n->paths.empty())
+            return;
+        key = n->paths[0];
+    }
+    std::vector<std::wstring> start = PinsRead(L"start"), task = PinsRead(L"taskbar");
+    auto find = [&](std::vector<std::wstring> &v) {
+        return std::find_if(v.begin(), v.end(), [&](const std::wstring &s) {   // also a bare name written by hand
+            return !_wcsicmp(s.c_str(), key.c_str()) || (s.find(L'\\') == std::wstring::npos && !_wcsicmp(s.c_str(), n->name.c_str()));
+        });
+    };
+    bool inStart = find(start) != start.end(), inTask = find(task) != task.end();
+    HMENU m = CreatePopupMenu();
+    AppendMenu(m, MF_STRING, 1, inStart ? TEXT("Unpin from Start") : TEXT("Pin to Start"));
+    AppendMenu(m, MF_STRING, 2, inTask ? TEXT("Unpin from taskbar") : TEXT("Pin to taskbar"));
+    int cmd = TrackPopupMenu(m, TPM_RETURNCMD | TPM_LEFTALIGN | TPM_TOPALIGN | TPM_NONOTIFY, pt.x, pt.y, 0, _hwnd, NULL);
+    DestroyMenu(m);
+    if (cmd == 1) {
+        if (inStart) start.erase(find(start)); else start.push_back(key);
+        if (PinsWrite(L"start", start)) {
+            Rescan();
+            _sel = -1;
+            BuildRows();
+            InvalidateRect(_hwnd, NULL, FALSE);
+        }
+    } else if (cmd == 2) {
+        if (inTask) task.erase(find(task)); else task.push_back(key);
+        if (PinsWrite(L"taskbar", task)) {
+            Node *copy = new Node(_root);
+            HANDLE th = CreateThread(NULL, 0, SyncPinsThread, copy, 0, NULL);
+            if (th) CloseHandle(th); else delete copy;
+        }
     }
 }
 
@@ -1160,6 +1528,17 @@ LRESULT StartMenu7::Proc(UINT msg, WPARAM wp, LPARAM lp)
         else if (PtInRect(&_rcShut, pt)) { if (!JCFG2_DEF("JS_STARTMENU", "noshutdown", false).ToBool()) RunCommand(L"::shutdown", L""); }
         else if (PtInRect(&_rcArrow, pt)) ShowShutdownMenu();
         else ActivateRight(RightAt(pt));
+        if (Visible()) SetFocus(_edit);
+        return 0;
+    }
+    case WM_RBUTTONUP: {                // program: Pin to Start / taskbar
+        POINT pt = { GET_X_LPARAM(lp), GET_Y_LPARAM(lp) };
+        int row = RowAt(pt);
+        if (row >= 0) {
+            POINT sp = pt;
+            ClientToScreen(_hwnd, &sp);
+            ShowPinMenu(row, sp);
+        }
         if (Visible()) SetFocus(_edit);
         return 0;
     }

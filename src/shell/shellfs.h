@@ -57,7 +57,7 @@ struct ShellDirectory : public ShellEntry, public Directory {
     {
         CONTEXT("ShellDirectory::ShellDirectory()");
 
-        lstrcpy(_data.cFileName, root_folder.get_name(shell_path, SHGDN_FORADDRESSBAR));
+        _tcsncpy_s(_data.cFileName, _countof(_data.cFileName), root_folder.get_name(shell_path, SHGDN_FORADDRESSBAR), _TRUNCATE);
         _data.dwFileAttributes = FILE_ATTRIBUTE_DIRECTORY;
         _shell_attribs = SFGAO_FOLDER;
 
@@ -73,7 +73,7 @@ struct ShellDirectory : public ShellEntry, public Directory {
            _hwnd(hwnd)
     {
         /* not neccessary - the caller will fill the info
-        lstrcpy(_data.cFileName, _folder.get_name(shell_path));
+        _tcsncpy_s(_data.cFileName, _countof(_data.cFileName), _folder.get_name(shell_path), _TRUNCATE);
         _data.dwFileAttributes = FILE_ATTRIBUTE_DIRECTORY;
         _shell_attribs = SFGAO_FOLDER; */
 

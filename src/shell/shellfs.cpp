@@ -61,7 +61,7 @@ bool ShellDirectory::fill_w32fdata_shell(LPCITEMIDLIST pidl, SFGAOF attribs, WIN
                 if (path) {
                     // fill with drive names "C:", ...
                     assert(_tcslen(path) < GlobalSize(medium.UNION_MEMBER(hGlobal)));
-                    _tcscpy(pw32fdata->cFileName, path);
+                    _tcsncpy_s(pw32fdata->cFileName, _countof(pw32fdata->cFileName), path, _TRUNCATE);
 
                     UINT sem_org = SetErrorMode(SEM_FAILCRITICALERRORS);
 
@@ -275,7 +275,7 @@ void ShellDirectory::read_directory(int scan_flags)
 
         LPTSTR p = buffer + _tcslen(buffer);
 
-        lstrcpy(p, TEXT("\\*"));
+        _tcsncpy_s(p, _countof(buffer) - (p - buffer), TEXT("\\*"), _TRUNCATE);
 
         WIN32_FIND_DATA w32fd;
         HANDLE hFind = FindFirstFile(buffer, &w32fd);
@@ -297,7 +297,7 @@ void ShellDirectory::read_directory(int scan_flags)
                      (w32fd.cFileName[1] == TEXT('.') && w32fd.cFileName[2] == TEXT('\0'))))
                     continue;
 
-                lstrcpy(p + 1, w32fd.cFileName);
+                _tcsncpy_s(p + 1, _countof(buffer) - (p + 1 - buffer), w32fd.cFileName, _TRUNCATE);
 
                 if (w32fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
                     entry = new WinDirectory(this, buffer);
@@ -442,11 +442,11 @@ void ShellDirectory::read_directory(int scan_flags)
                     // store path in entry->_data.cFileName in case fill_w32fdata_shell() didn't already fill it
                     if (!entry->_data.cFileName[0])
                         if (SUCCEEDED(path_from_pidl(_folder, pidls[n], path, COUNTOF(path))))
-                            _tcscpy(entry->_data.cFileName, path);
+                            _tcsncpy_s(entry->_data.cFileName, _countof(entry->_data.cFileName), path, _TRUNCATE);
 
                     if (SUCCEEDED(name_from_pidl(_folder, pidls[n], name, COUNTOF(name), SHGDN_INFOLDER | 0x2000/*0x2000=SHGDN_INCLUDE_NONFILESYS*/))) {
                         if (!entry->_data.cFileName[0])
-                            _tcscpy(entry->_data.cFileName, name);
+                            _tcsncpy_s(entry->_data.cFileName, _countof(entry->_data.cFileName), name, _TRUNCATE);
                         else if (_tcscmp(entry->_display_name, name))
                             entry->_display_name = _tcsdup(name);   // store display name separate from file name; sort display by file name
                     }

@@ -176,6 +176,7 @@ protected:
     bool    _show_hidden;
     bool    _hide_inactive;
     bool    _show_button;
+    int     _sd_width;      ///< "show desktop" strip at the right end (0 = none): JS_NOTIFYAREA.hide_showdesktop_button
 
     LRESULT Init(LPCREATESTRUCT pcs);
     LRESULT WndProc(UINT nmsg, WPARAM wparam, LPARAM lparam);

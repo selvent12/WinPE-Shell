@@ -191,11 +191,13 @@ BOOL exists_path(LPCTSTR path);
 
 
 // secure CRT functions
-//@@ _MS_VER: temporarily needed for the ReactOS build environment
-#if defined(__STDC_WANT_SECURE_LIB__) && defined(_MS_VER)   // for VS 2005: _MSC_VER>=1400
+// The ReactOS / PExplorer code tested "_MS_VER" (never defined), so with MSVC the #else branch below was always used
+// and the *_s functions were redefined as the unbounded ones (WinPE-Shell 2026-11-27). Now the real secure CRT is
+// used; _stprintf_s1/2 truncate instead of calling the invalid parameter handler.
+#if defined(__STDC_WANT_SECURE_LIB__) && defined(_MSC_VER) && _MSC_VER >= 1400
 
-#define _stprintf_s1 _stprintf_s
-#define _stprintf_s2 _stprintf_s
+#define _stprintf_s1(b, l, f, p1) _sntprintf_s(b, l, _TRUNCATE, f, p1)
+#define _stprintf_s2(b, l, f, p1, p2) _sntprintf_s(b, l, _TRUNCATE, f, p1, p2)
 
 #else   // __STDC_WANT_SECURE_LIB__
 

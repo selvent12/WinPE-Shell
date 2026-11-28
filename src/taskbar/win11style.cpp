@@ -83,7 +83,7 @@ HFONT W11_Font()
         lf.lfWeight = FW_NORMAL;
         lf.lfCharSet = DEFAULT_CHARSET;
         lf.lfQuality = CLEARTYPE_QUALITY;
-        lstrcpy(lf.lfFaceName, TEXT("Segoe UI"));
+        _tcsncpy_s(lf.lfFaceName, _countof(lf.lfFaceName), TEXT("Segoe UI"), _TRUNCATE);
         font = CreateFontIndirect(&lf);
         if (!font)
             font = GetStockFont(DEFAULT_GUI_FONT);

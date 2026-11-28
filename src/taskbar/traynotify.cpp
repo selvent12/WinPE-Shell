@@ -292,6 +292,7 @@ NotifyArea::NotifyArea(HWND hwnd)
     _show_hidden = false;
     _hide_inactive = true;
     _show_button = true;
+    _sd_width = 0;
 }
 
 NotifyArea::~NotifyArea()
@@ -323,7 +324,13 @@ static bool get_hide_clock_from_registry()
 
 void NotifyArea::read_config()
 {
-    bool clock_visible = true;
+    // JS_NOTIFYCLOCK.visible=false: no clock; JS_NOTIFYAREA.hide_toggle_button=true: no button for the hidden icons
+    // (WinXShell options, e947d3d)
+    bool clock_visible = JCFG2_DEF("JS_NOTIFYCLOCK", "visible", true).ToBool() != FALSE;
+    _show_button = JCFG2_DEF("JS_NOTIFYAREA", "hide_toggle_button", false).ToBool() == FALSE;
+    // thin "show desktop" strip right of the clock, as in Windows 7-11 (WinXShell ecc3f0c): a click minimizes or
+    // restores all windows like Win+D. Off with JS_NOTIFYAREA.hide_showdesktop_button or JS_TASKBAR.disable_showdesktop.
+    _sd_width = (JCFG2_DEF("JS_NOTIFYAREA", "hide_showdesktop_button", false).ToBool() == FALSE && !JCFG_NOSHOWDESKTOP()) ? DPI_SX(10) : 0;
     show_clock(clock_visible);
 }
 
@@ -395,7 +402,7 @@ static BOOL TrayNotifyMessage(HWND hwnd, const NotifyInfo &entry, LPARAM lparam,
 #ifdef _DEBUG
     _log_(FmtString(TEXT("TRAYICON MSG = %s"), getmsgstr(lparam)));
 #endif
-    if (entry._version == NOTIFYICON_VERSION_4)
+    if (entry._version >= NOTIFYICON_VERSION_4)     // v4 message format (also for any later version)
     {
         POINT messagePt = pt;
         ClientToScreen(hwnd, &messagePt);
@@ -441,12 +448,12 @@ LRESULT NotifyArea::WndProc(UINT nmsg, WPARAM wparam, LPARAM lparam)
 
     case WM_SIZE: {
         int cx = LOWORD(lparam);
-        SetWindowPos(_hwndClock, 0, cx - _clock_width, 0, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+        SetWindowPos(_hwndClock, 0, cx - _sd_width - _clock_width, 0, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
         break;
     }
 
     case PM_GET_WIDTH: {
-        size_t w = _sorted_icons.size() * NOTIFYICON_DIST + NOTIFYAREA_SPACE + _clock_width;
+        size_t w = _sorted_icons.size() * NOTIFYICON_DIST + NOTIFYAREA_SPACE + _clock_width + _sd_width;
         if (_show_button)
             w += NOTIFYICON_DIST;
         return w;
@@ -501,6 +508,11 @@ LRESULT NotifyArea::WndProc(UINT nmsg, WPARAM wparam, LPARAM lparam)
                 CancelModes();
 
             Point pt(lparam);
+            if (_sd_width && pt.x >= ClientRect(_hwnd).right - _sd_width) {     // the "show desktop" strip
+                if (nmsg == WM_LBUTTONUP)
+                    g_Globals._desktop.ToggleMinimize();
+                return 0;
+            }
             NotifyIconSet::const_iterator found = IconHitTest(pt);
 
             if (found != _sorted_icons.end()) {
@@ -757,6 +769,14 @@ void NotifyArea::Paint()
 
     // first fill with the background color
     FillRect(canvas, &canvas.rcPaint, TASKBAR_BRUSH());
+
+    if (_sd_width) {    // "show desktop" strip: a thin line at its left edge
+        ClientRect cr(_hwnd);
+        RECT line = { cr.right - _sd_width, cr.top + DPI_SY(10), cr.right - _sd_width + max(1, (int)DPI_SX(1)), cr.bottom - DPI_SY(10) };
+        HBRUSH br = CreateSolidBrush(RGB(110, 110, 110));
+        FillRect(canvas, &line, br);
+        DeleteObject(br);
+    }
 
     // draw icons
     int x = NOTIFYICON_X;
@@ -1349,9 +1369,9 @@ HWND ClockWindow::Create(HWND hwndParent)
     SYSTEMTIME st = { 1601, 1, 0, 1, 23, 59, 59, 999 };
 
     if (!GetTimeFormat(LOCALE_USER_DEFAULT, TIME_NOSECONDS, &st, NULL, buffer, sizeof(buffer) / sizeof(TCHAR)))
-        _tcscpy(buffer, TEXT("00:00\r\n2015/08/15"));
+        _tcsncpy_s(buffer, _countof(buffer), TEXT("00:00\r\n2015/08/15"), _TRUNCATE);
     else {
-        _tcscat(buffer, TEXT("\r\n2015/08/15"));
+        _tcsncat_s(buffer, _countof(buffer), TEXT("\r\n2015/08/15"), _TRUNCATE);
     }
 
     // Calculate the rectangle needed to draw the time (without actually drawing it)
@@ -1399,7 +1419,7 @@ int ClockWindow::Notify(int id, NMHDR *pnmh)
         GetLocalTime(&systime);
 
         if (GetDateFormat(LOCALE_USER_DEFAULT, DATE_LONGDATE, &systime, NULL, buffer, 64))
-            _tcscpy(pdi->szText, buffer);
+            _tcsncpy_s(pdi->szText, _countof(pdi->szText), buffer, _TRUNCATE);
         else
             pdi->szText[0] = '\0';
     }
@@ -1422,16 +1442,16 @@ bool ClockWindow::FormatTime()
     if (!(GetTimeFormat(LOCALE_USER_DEFAULT, TIME_NOSECONDS, NULL, NULL,
                         time_buff, sizeof(time_buff) / sizeof(TCHAR)))) return false;
 
-    _tcscat(buffer, time_buff);
+    _tcsncat_s(buffer, _countof(buffer), time_buff, _TRUNCATE);
 
     if (!(GetDateFormat(LOCALE_USER_DEFAULT, DATE_SHORTDATE, NULL, NULL,
                         date_buffer, sizeof(date_buffer) / sizeof(TCHAR)))) return false;
 
-    _tcscat(buffer, TEXT("\r\n"));
-    _tcscat(buffer, date_buffer);
+    _tcsncat_s(buffer, _countof(buffer), TEXT("\r\n"), _TRUNCATE);
+    _tcsncat_s(buffer, _countof(buffer), date_buffer, _TRUNCATE);
 
     if (_tcscmp(buffer, _time)) {
-        _tcscpy(_time, buffer);
+        _tcsncpy_s(_time, _countof(_time), buffer, _TRUNCATE);   // buffer is up to 81 chars, _time 32
         return true;    // The text to display has changed.
     }
     return false; //no change

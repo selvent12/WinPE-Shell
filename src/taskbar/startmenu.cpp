@@ -252,8 +252,8 @@ void StartMenu::AddShellEntries(const ShellDirectory &dir, int max, const String
     if (!ignore.empty()) {
         _tsplitpath_s(ignore, ignore_path, COUNTOF(ignore_path), ignore_dir, COUNTOF(ignore_dir), ignore_name, COUNTOF(ignore_name), ignore_ext, COUNTOF(ignore_ext));
 
-        _tcscat(ignore_path, ignore_dir);
-        _tcscat(ignore_name, ignore_ext);
+        _tcsncat_s(ignore_path, _countof(ignore_path), ignore_dir, _TRUNCATE);
+        _tcsncat_s(ignore_name, _countof(ignore_name), ignore_ext, _TRUNCATE);
 
         dir.get_path(dir_path, COUNTOF(dir_path));
 
@@ -533,7 +533,7 @@ int StartMenu::ButtonHitTest(POINT pt)
     if (pt.x < rect.left || pt.x > rect.right)
         return 0;
 
-    for (SMBtnVector::const_iterator it = _buttons.begin() + _scroll_pos; it != _buttons.end(); ++it) {
+    for (SMBtnVector::const_iterator it = FirstVisibleButton(); it != _buttons.end(); ++it) {
         const SMBtnInfo &info = *it;
 
         if (rect.top > pt.y)
@@ -562,7 +562,7 @@ void StartMenu::InvalidateSelection()
     const int icon_size = _icon_size;
     RECT rect = {_border_left, _border_top, clnt.right, STARTMENU_LINE_HEIGHT(icon_size)};
 
-    for (SMBtnVector::const_iterator it = _buttons.begin() + _scroll_pos; it != _buttons.end(); ++it) {
+    for (SMBtnVector::const_iterator it = FirstVisibleButton(); it != _buttons.end(); ++it) {
         const SMBtnInfo &info = *it;
 
         rect.bottom = rect.top + (info._id == -1 ? STARTMENU_SEP_HEIGHT(icon_size) : STARTMENU_LINE_HEIGHT(icon_size));
@@ -795,7 +795,7 @@ bool StartMenu::GetButtonRect(int id, PRECT prect) const
     const int icon_size = _icon_size;
     RECT rect = {_border_left, _border_top, clnt.right, STARTMENU_LINE_HEIGHT(icon_size)};
 
-    for (SMBtnVector::const_iterator it = _buttons.begin() + _scroll_pos; it != _buttons.end(); ++it) {
+    for (SMBtnVector::const_iterator it = FirstVisibleButton(); it != _buttons.end(); ++it) {
         const SMBtnInfo &info = *it;
 
         rect.bottom = rect.top + (info._id == -1 ? STARTMENU_SEP_HEIGHT(icon_size) : STARTMENU_LINE_HEIGHT(icon_size));
@@ -895,7 +895,7 @@ void StartMenu::Paint(PaintCanvas &canvas)
     FontSelection font(canvas, GetStockFont(DEFAULT_GUI_FONT));
     BkMode bk_mode(canvas, TRANSPARENT);
 
-    for (SMBtnVector::const_iterator it = _buttons.begin() + _scroll_pos; it != _buttons.end(); ++it) {
+    for (SMBtnVector::const_iterator it = FirstVisibleButton(); it != _buttons.end(); ++it) {
         const SMBtnInfo &btn = *it;
 
         if (rect.top > canvas.rcPaint.bottom)
@@ -956,7 +956,8 @@ void StartMenu::UpdateIcons(/*int idx*/)
 
                     RECT rect;
 
-                    GetButtonRect(btn._id, &rect);
+                    if (!GetButtonRect(btn._id, &rect))     // not shown (scrolled out / list rebuilt): rect undefined
+                        continue;
 
                     if (rect.bottom > _bottom_max)
                         break;

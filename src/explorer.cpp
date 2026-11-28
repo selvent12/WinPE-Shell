@@ -841,7 +841,7 @@ bool ExplorerCmd::EvaluateOption(LPCTSTR option)
             TCHAR szDir[MAX_PATH];
 
             _tsplitpath(option, szPath, szDir, NULL, NULL);
-            _tcscat(szPath, szDir);
+            _tcsncat_s(szPath, _countof(szPath), szDir, _TRUNCATE);
             PathRemoveBackslash(szPath);
             _path = szPath;
             SelectOpt = FALSE;
@@ -1049,15 +1049,24 @@ static void ChangeUserProfileEnv()
     if (g_Globals._isWinPE) {
         GetEnvironmentVariable(TEXT("USERPROFILE"), userprofile, MAX_PATH);
         if (_tcsicmp(userprofile, TEXT("X:\\windows\\system32\\config\\systemprofile")) == 0) {
-            _tcscpy(userprofile, TEXT("X:\\Users\\Default"));
+            _tcsncpy_s(userprofile, _countof(userprofile), TEXT("X:\\Users\\Default"), _TRUNCATE);
             SetEnvironmentVariable(TEXT("USERPROFILE"), userprofile);
         }
     }
 }
 
+// A bad argument to a secure CRT function (a buffer too small for _tsplitpath_s, ...) ends the process by default; the
+// shell logs it and goes on: the function has already returned an error and emptied its output buffer.
+static void __cdecl ShellInvalidParameter(const wchar_t *, const wchar_t *, const wchar_t *, unsigned int, uintptr_t)
+{
+    LOG(TEXT("CRT invalid parameter (buffer too small / bad argument) - call skipped\n"));
+}
+
 int WINAPI _tWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPTSTR lpCmdLine, int nShowCmd)
 {
     CONTEXT("WinMain()");
+
+    _set_invalid_parameter_handler(ShellInvalidParameter);
 
     BOOL any_desktop_running = IsAnyDesktopRunning();
 
@@ -1224,7 +1233,7 @@ int WINAPI _tWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPTSTR lpCmdL
 
     Thread *pSSOThread = NULL;
 
-    if (startup_desktop && JCFG_TB(2, "notaskbar").ToBool() == FALSE) {
+    if (startup_desktop && !JCFG_NOTASKBAR()) {
         // launch SSO thread to allow message processing independent from the explorer main thread
         pSSOThread = new SSOThread;
         pSSOThread->Start();

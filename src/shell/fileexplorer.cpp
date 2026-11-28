@@ -349,7 +349,7 @@ IFACEMETHODIMP CFileDialogEventHandler::OnFileOk(IFileDialog *pDlg)
         if (SUCCEEDED(hr)) {
             LOG(pwsz);
             //PathCchRemoveFileSpec
-            _tcscpy(path, pwsz);
+            _tcsncpy_s(path, _countof(path), pwsz, _TRUNCATE);
             PathRemoveFileSpec(path);
             SetCurrentDirectory(path);
             launch_file(g_Globals._hwndDesktop, pwsz);

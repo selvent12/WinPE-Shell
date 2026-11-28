@@ -385,7 +385,7 @@ LRESULT DesktopWindow::Init(LPCREATESTRUCT pcs)
                                         SHCNE_CREATE | SHCNE_MKDIR, WM_SHNOTIFY, 1, &ps);
 
     // create the explorer bar
-    if (JCFG_TB(2, "notaskbar").ToBool() == FALSE) {
+    if (!JCFG_NOTASKBAR()) {
         _desktopBar = DesktopBar::Create();
         g_Globals._hwndDesktopBar = _desktopBar;
     } else {
@@ -407,7 +407,7 @@ void DesktopWindow::RegisterHotkeys(BOOL unreg)
     AUTOREGISTERHOTKEY(unreg, _hwnd, IDHK_EXPLORER, MOD_WIN, 'E');
     AUTOREGISTERHOTKEY(unreg, _hwnd, IDHK_RUN, MOD_WIN, 'R');
     AUTOREGISTERHOTKEY(unreg, _hwnd, IDHK_LOGOFF, MOD_WIN, 'L');
-    if (g_Globals._hwndDesktopBar == (HWND)0) {
+    if (g_Globals._hwndDesktopBar == (HWND)0 && !JCFG_NOSHOWDESKTOP()) {
         AUTOREGISTERHOTKEY(unreg, _hwnd, IDHK_DESKTOP, MOD_WIN, 'D');
     }
     // Print Screen runs JS_HOTKEY.printscreen (e.g. a screen snip tool); only when one is configured
@@ -1012,7 +1012,7 @@ static BOOL UpdateWallpaper()
     TCHAR wpPath[MAX_PATH] = { 0 };
     if (!SystemParametersInfo(SPI_GETDESKWALLPAPER, MAX_PATH, wpPath, 0)) return FALSE;
     if (lstrcmpi(lastWPPath, wpPath) == 0) return FALSE;
-    lstrcpy(lastWPPath, wpPath);
+    _tcsncpy_s(lastWPPath, _countof(lastWPPath), wpPath, _TRUNCATE);
     LOG(lastWPPath);
     String strWallpaper(wpPath);
     SET_JCFG2("JS_DESKTOP", "wallpaper") = strWallpaper;
@@ -1056,7 +1056,7 @@ LRESULT DesktopShellView::WndProc(UINT nmsg, WPARAM wparam, LPARAM lparam)
     }
     case WM_DISPLAYCHANGE: {
         LoadWallpaper(FALSE);
-        if (JCFG_TB(2, "notaskbar").ToBool() == TRUE) {
+        if (JCFG_NOTASKBAR()) {
             NotifySetWorkArea();
         }
         return super::WndProc(nmsg, wparam, lparam);

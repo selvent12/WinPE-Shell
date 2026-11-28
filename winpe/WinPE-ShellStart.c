@@ -7,7 +7,8 @@
  *  2. [run] steps from the ini, hidden (CREATE_NO_WINDOW + SW_HIDE), "wait|" or "nowait|" prefix
  *  3. starts the shell (ini [shell] path/args)
  *  4. watchdog: restarts the shell; more than 3 crashes within 60 s -> visible cmd.exe fallback (re-opened if closed);
- *     requested restarts (exit code 0x7F04 or 0x7F05: "Restart shell", live scale change) have their own limit, 10 within 60 s
+ *     requested restarts (exit code 0x7F04 or 0x7F05: "Restart shell", live scale change) have their own limit, 10 within 60 s;
+ *     a HUNG shell (its Shell_TrayWnd does not answer WM_NULL for ~2 min) is ended (rc 0x7F06) and counted as a crash
  *  5. log: <exe dir>\logs\startup.log
  *
  * Config <exe dir>\config\startup.ini (written by the image builder), for example with the exe in X:\MyPE:
@@ -148,6 +149,23 @@ static void RunSteps(void)
     }
 }
 
+/* Hang check: the shell's taskbar window (Shell_TrayWnd of that process) must answer WM_NULL within 5 s. Returns 1
+   answered, 0 no answer, -1 no taskbar window of that process yet (still starting, or a shell without one). */
+#define HANG_CHECK_MS   5000     /* wait between checks = SendMessageTimeout limit */
+#define HANG_LIMIT      12       /* 12 failed checks in a row (~2 min) -> the shell is ended and restarted */
+static int ShellResponds(HANDLE shell)
+{
+    DWORD pid = GetProcessId(shell), wpid = 0;
+    HWND w = NULL;
+    DWORD_PTR r;
+    while ((w = FindWindowExW(NULL, w, L"Shell_TrayWnd", NULL)) != NULL) {
+        GetWindowThreadProcessId(w, &wpid);
+        if (wpid == pid) break;
+    }
+    if (!w) return -1;
+    return SendMessageTimeoutW(w, WM_NULL, 0, 0, SMTO_ABORTIFHUNG | SMTO_BLOCK, HANG_CHECK_MS, &r) ? 1 : 0;
+}
+
 int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE hPrev, LPWSTR cmdLine, int nShow)
 {
     wchar_t wpeinit[MAXCMD], name[64], path[MAX_PATH], args[MAXCMD], shellCmd[MAXCMD], cmdexe[MAX_PATH], dir[MAX_PATH];
@@ -157,7 +175,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE hPrev, LPWSTR cmdLine, int nShow)
        scale a few times in a row keeps the shell; crashes keep the 4-starts-in-60-s limit */
     DWORD clean[10] = {0};
     DWORD lastRc = 0xFFFFFFFF;
-    int nrest = 0, nclean = 0, nstart = 0, fallback = 0;
+    int nrest = 0, nclean = 0, nstart = 0, fallback = 0, hung = 0;
     HANDLE shell = NULL, rescue = NULL;
     (void)hInst; (void)hPrev; (void)cmdLine; (void)nShow;
 
@@ -218,11 +236,27 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE hPrev, LPWSTR cmdLine, int nShow)
             if (shell) hs[n++] = shell;
             if (rescue) hs[n++] = rescue;
             if (!n) continue;
-            w = WaitForMultipleObjects(n, hs, FALSE, INFINITE);
+            w = WaitForMultipleObjects(n, hs, FALSE, shell ? HANG_CHECK_MS : INFINITE);
+            if (w == WAIT_TIMEOUT) {
+                /* the shell runs: is it hung? (a crash ends the process, a hang does not - review 2026-11-27) */
+                int ok = ShellResponds(shell);
+                if (ok == 0) {
+                    if (++hung == 1 || hung % 4 == 0) Log(L"shell %s not responding (%d check(s), %d s)", name, hung, hung * HANG_CHECK_MS * 2 / 1000);
+                    if (hung >= HANG_LIMIT) {
+                        Log(L"shell %s hung for ~%d s -> ended (rc 0x7F06), restart counted as a crash", name, hung * HANG_CHECK_MS * 2 / 1000);
+                        TerminateProcess(shell, 0x7F06);
+                        hung = 0;   /* the wait above sees the process end on the next pass */
+                    }
+                } else {
+                    if (hung) Log(L"shell %s responding again after %d failed check(s)", name, hung);
+                    hung = 0;
+                }
+                continue;
+            }
             if (w >= WAIT_OBJECT_0 && w < WAIT_OBJECT_0 + n) {
                 HANDLE ended = hs[w - WAIT_OBJECT_0];
                 GetExitCodeProcess(ended, &rc);
-                if (ended == shell) { Log(L"shell %s exited rc=%lu (0x%08lX)", name, rc, rc); CloseHandle(shell); shell = NULL; lastRc = rc; }
+                if (ended == shell) { Log(L"shell %s exited rc=%lu (0x%08lX)", name, rc, rc); CloseHandle(shell); shell = NULL; lastRc = rc; hung = 0; }
                 else { Log(L"fallback cmd exited rc=%lu - reopening", rc); CloseHandle(rescue); rescue = NULL; }
             } else {
                 Log(L"wait failed err=%lu", GetLastError());
